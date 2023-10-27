@@ -2,6 +2,7 @@
 **/*[Tt][Ee][Mm][Pp]*
 /.idea
 __pycache__/
+/venv/
 /data/
 /plots/
 /model_states/*
