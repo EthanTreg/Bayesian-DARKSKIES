@@ -1,0 +1,44 @@
+# Configuration file for all scripts
+# All file paths are relative to the parent script directory, unless otherwise stated
+---
+global-variables:
+  network-variables:
+    # File name for the network to load
+    - &network_name 'network_v1'
+    # Path to the configuration files for the networks
+    - &network_configs_directory '../network_configs/'
+  data-variables:
+    # Path to the images with lensing and X-ray maps and parameters
+    - &data_path '../data/binned_data_20.pkl'
+  output-variables:
+    # Directory to save network training states
+    - &network_states_directory '../model_states/'
+
+# main.py config file
+main:
+  # Variables for training the network
+  training:
+    # File number to save the network progres
+    save: 0
+    # File number to load the network state
+    load: 0
+    # Number of epochs to train for
+    epochs: 100
+    # Number of inputs to process between network weight updates
+    batch-size: 120
+    # Learning rate for training
+    learning-rate: 0.0005
+    # File name for network model to load
+    network-name: *network_name
+    # Path to the configuration files for the encoder and decoder
+    network-configs-directory: *network_configs_directory
+  # File location for different datasets
+  data:
+    # Path to the list containing the images and parameters
+    data-path: *data_path
+  # Directory locations for the different outputs
+  output:
+    # Directory to save network training states
+    network-states-directory: *network_states_directory
+    # Directory to save plots
+    plots-directory: '../plots/'

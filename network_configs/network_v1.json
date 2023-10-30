@@ -1,0 +1,8 @@
+{
+  "net": {
+    "dropout_prob": 0.1
+  },
+  "layers": [
+
+  ]
+}

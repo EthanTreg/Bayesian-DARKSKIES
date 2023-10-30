@@ -1,3 +1,6 @@
+"""
+Main script for training the network
+"""
 from time import time
 
 import torch
@@ -5,9 +8,9 @@ import numpy as np
 import normflows as nf
 from torch import nn, Tensor
 from torch.utils.data import DataLoader
+from netloader.network import Network
 
-from fspnet.utils.network import Network
-from fspnet.utils.utils import get_device
+from src.utils.utils import get_device
 
 
 def train_val(
@@ -40,7 +43,7 @@ def train_val(
         network.eval()
 
     with torch.set_grad_enabled(train):
-        for params, _, images in loader:
+        for _, params, images in loader:
             params = params.to(device)
             images = images.to(device)
 

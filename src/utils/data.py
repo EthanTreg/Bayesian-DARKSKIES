@@ -10,43 +10,46 @@ from torch.utils.data import Dataset, DataLoader, Subset
 
 from src.utils.utils import get_device
 
+
 class DarkDataset(Dataset):
     """
-    A dataset object containing image maps and dark matter cross sections for PyTorch training
+    A dataset object containing image maps and dark matter cross-sections for PyTorch training
 
     Attributes
     ----------
     ids : list[integer]
         IDs for each cluster in the dataset
-    labels : list[float]
-        Supervised labels for dark matter cross section for each cluster
-    indices : ndarray, default = None
+    indices : ndarray
         Data indices for random training & validation datasets
+    labels : Tensor
+        Supervised labels for dark matter cross-section for each cluster
     """
-    def __init__(self, data_file: str):
+    def __init__(self, data_path: str):
         """
         Parameters
         ----------
-        data_file : string
+        data_path : string
             Path to the data file with the cluster dataset
         """
         self.indices = None
 
-        with open(data_file, 'rb') as file:
+        # Load data from file
+        with open(data_path, 'rb') as file:
             params, images = pickle.load(file)
 
         self.images = torch.from_numpy(np.delete(images, -1, axis=-1))
-        self.labels = params['label']
+        self.labels = torch.tensor(params['label'])
 
+        # Uses cluster IDs if provided, otherwise, number dataset in order
         if 'clusterID' in params:
             self.ids = params['clusterID']
         else:
-            self.ids = range(self.images.shape[0])
+            self.ids = np.arange(self.images.shape[0])
 
     def __len__(self) -> int:
         return self.images.shape[0]
-    
-    def __getitem__(self, idx: int) -> tuple[float, str, Tensor]:
+
+    def __getitem__(self, idx: int) -> tuple[np.ndarray, Tensor, Tensor]:
         """
         Gets the training data for the given index
 
@@ -57,14 +60,14 @@ class DarkDataset(Dataset):
 
         Returns
         -------
-        tuple[float, string, Tensor]
-            Dark matter cross section, cluster ID, and image map
+        tuple[ndarray, Tensor, Tensor]
+            Cluster ID, dark matter cross-section, and image map
         """
-        return self.labels[idx], self.ids[idx], self.images[idx]
+        return self.ids[idx], self.labels[idx], self.images[idx]
 
 
-def data_initialisation(
-        data_file: str,
+def data_init(
+        data_path: str,
         batch_size: int = 120,
         val_frac: float = 0.1,
         indices: np.ndarray = None) -> tuple[DataLoader, DataLoader]:
@@ -73,7 +76,7 @@ def data_initialisation(
 
     Parameters
     ----------
-    data_file : string
+    data_path : string
         Path to the dataset
     batch_size : integer, default = 1024
         Number of data inputs per weight update,
@@ -88,10 +91,10 @@ def data_initialisation(
     tuple[DataLoader, DataLoader]
         Dataloaders for the training and validation datasets
     """
-    kwargs = get_device()[1]
+    kwargs = get_device()[0]
 
     # Fetch dataset & calculate validation fraction
-    dataset = DarkDataset(data_file)
+    dataset = DarkDataset(data_path)
     val_amount = max(int(len(dataset) * val_frac), 1)
 
     # If network hasn't trained on data yet, randomly separate training and validation

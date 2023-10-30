@@ -7,4 +7,4 @@ normflows~=1.7.2
 --find-links https://download.pytorch.org/whl/cu118; sys_platform != "darwin"
 torch~=2.1.0
 
-netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader
+netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@v0.1.1
