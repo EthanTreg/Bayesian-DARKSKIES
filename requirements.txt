@@ -2,10 +2,9 @@ matplotlib~=3.8.0
 numpy~=1.26.1
 PyQt5~=5.15.10
 PyYAML~=6.0.1
+normflows~=1.7.2
 
 --find-links https://download.pytorch.org/whl/cu118; sys_platform != "darwin"
 torch~=2.1.0
-torchaudio~=2.1.0
-torchvision~=0.16.0
 
 netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader
