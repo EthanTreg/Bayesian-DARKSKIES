@@ -4,8 +4,8 @@ Main script for training the network
 from time import time
 
 import torch
-import numpy as np
 import normflows as nf
+from numpy import ndarray
 from torch import nn, Tensor
 from torch.utils.data import DataLoader
 from netloader.network import Network
@@ -16,7 +16,7 @@ from src.utils.utils import get_device
 def train_val(
         loader: DataLoader,
         network: Network,
-        train: bool = True) -> tuple[float, np.ndarray, np.ndarray]:
+        train: bool = True) -> tuple[float, ndarray, ndarray]:
     """
     Trains the encoder or decoder using cross entropy or mean squared error
 
@@ -32,7 +32,7 @@ def train_val(
     Returns
     -------
     tuple[float, ndarray, ndarray]
-        Average loss value, parameters, & network output
+        Average loss value, labels, & network output
     """
     epoch_loss = 0
     device = get_device()[1]
@@ -43,22 +43,22 @@ def train_val(
         network.eval()
 
     with torch.set_grad_enabled(train):
-        for _, params, images in loader:
-            params = params.to(device)
+        for _, labels, images in loader:
+            labels = labels.to(device)
             images = images.to(device)
 
             output = network(images)
-            loss = nn.MSELoss()(output, params)
+            loss = nn.MSELoss()(output, labels)
 
             if train:
                 # Optimise network
-                network.optimizer.zero_grad()
+                network.optimiser.zero_grad()
                 loss.backward()
-                network.optimizer.step()
+                network.optimiser.step()
 
             epoch_loss += loss.item()
 
-    return epoch_loss / len(loader), params.cpu().numpy(), output.detach().cpu().numpy()
+    return epoch_loss / len(loader), labels.cpu().numpy(), output.detach().cpu().numpy()
 
 
 def training(
@@ -68,7 +68,7 @@ def training(
         save_num: int = 0,
         states_dir: str = None,
         losses: tuple[list[Tensor], list[Tensor]] = None
-        ) -> tuple[tuple[list, list], np.ndarray, np.ndarray]:
+        ) -> tuple[tuple[list, list], ndarray, ndarray]:
     """
     Trains & validates the network for each epoch
 
@@ -90,7 +90,7 @@ def training(
     Returns
     -------
     tuple[tuple[list, list], ndarray, ndarray]
-        Train & validation losses, image maps & parameters
+        Train & validation losses, labels, & network outputs
     """
     if not losses:
         losses = ([], [])
@@ -111,12 +111,11 @@ def training(
         if save_num:
             state = {
                 'epoch': epoch,
-                'transform': loaders[0].dataset.dataset.transform,
                 'train_loss': losses[0],
                 'val_loss': losses[1],
                 'indices': loaders[0].dataset.dataset.indices,
                 'state_dict': network.state_dict(),
-                'optimizer': network.optimizer.state_dict(),
+                'optimiser': network.optimiser.state_dict(),
                 'scheduler': network.scheduler.state_dict(),
             }
 
@@ -128,12 +127,12 @@ def training(
               f'Time: {time() - t_initial:.1f}')
 
     # Final validation
-    loss, spectra, outputs = train_val(loaders[1], network, train=False)
+    loss, labels, outputs = train_val(loaders[1], network, train=False)
     losses[1].append(loss)
     print(f'\nFinal validation loss: {losses[1][-1]:.3e}')
 
-    return losses, spectra, outputs
+    return losses, labels, outputs
 
 
-def nf_training():
-    base = nf.distributions.base.DiagGaussian()
+# def nf_training():
+#     base = nf.distributions.base.DiagGaussian()

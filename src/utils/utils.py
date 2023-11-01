@@ -6,6 +6,9 @@ from argparse import ArgumentParser
 
 import yaml
 import torch
+import numpy as np
+from numpy import ndarray
+from netloader.network import Network
 
 
 def _interactive_check() -> bool:
@@ -42,6 +45,93 @@ def get_device() -> tuple[dict, torch.device]:
     kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}
 
     return kwargs, device
+
+
+def load_network(
+        load_num: int,
+        states_dir: str,
+        network: Network) -> tuple[int, Network, tuple[list, list]] | None:
+    """
+    Loads the network from a previously saved state
+
+    Can account for changes in the network
+
+    Parameters
+    ----------
+    load_num : integer
+        File number of the saved state
+    states_dir : string
+        Directory to the save files
+    network : Network
+        The network to append saved state to
+
+    Returns
+    -------
+    tuple[int, Encoder | Decoder, Optimizer, ReduceLROnPlateau, tuple[list, list]]
+        The initial epoch, the updated network, optimizer
+        and scheduler, and the training and validation losses
+    """
+    state = torch.load(f'{states_dir}{network.name}_{load_num}.pth', map_location=get_device()[1])
+
+    # Apply the saved states to the new network
+    initial_epoch = state['epoch']
+    network.load_state_dict(network.state_dict() | state['state_dict'])
+    network.optimiser.load_state_dict(state['optimiser'])
+    network.scheduler.load_state_dict(state['scheduler'])
+    train_loss = state['train_loss']
+    val_loss = state['val_loss']
+
+    return initial_epoch, network, (train_loss, val_loss)
+
+
+def name_sort(
+        names: list[ndarray, ndarray],
+        data: list[ndarray, ndarray],
+        shuffle: bool = True) -> tuple[list[ndarray, ndarray], list[ndarray, ndarray]]:
+    """
+    Sorts names and data so that two arrays contain the same names
+
+    Parameters
+    ----------
+    names : list[ndarray, ndarray]
+        Name arrays to sort
+    data : list[ndarray, ndarray]
+        Data arrays to sort from corresponding name arrays
+    shuffle : boolean, default = True
+        If name and data arrays should be shuffled
+
+    Returns
+    -------
+    tuple[list[ndarray, ndarray], list[ndarray, ndarray]]
+        Sorted name and data arrays
+    """
+    # Sort for longest dataset first
+    sort_idx = np.argsort([datum.shape[0] for datum in data])[::-1]
+    data = [data[i] for i in sort_idx]
+    names = [names[i] for i in sort_idx]
+
+    # Sort target spectra by name
+    name_sort_idx = np.argsort(names[0])
+    names[0] = names[0][name_sort_idx]
+    data[0] = data[0][name_sort_idx]
+
+    # Filter target parameters using spectra that was predicted and log parameters
+    target_idx = np.searchsorted(names[0], names[1])
+    names[0] = names[0][target_idx]
+    data[0] = data[0][target_idx]
+
+    # Shuffle params
+    if shuffle:
+        shuffle_idx = np.random.permutation(data[0].shape[0])
+        names[0] = names[0][shuffle_idx]
+        names[1] = names[1][shuffle_idx]
+        data[0] = data[0][shuffle_idx]
+        data[1] = data[1][shuffle_idx]
+
+    data = [data[i] for i in sort_idx]
+    names = [names[i] for i in sort_idx]
+
+    return names, data
 
 
 def open_config(key: str, config_path: str, parser: ArgumentParser = None) -> tuple[str, dict]:

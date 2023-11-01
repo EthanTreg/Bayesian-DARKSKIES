@@ -5,6 +5,7 @@ import pickle
 
 import torch
 import numpy as np
+from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Subset
 
@@ -17,12 +18,14 @@ class DarkDataset(Dataset):
 
     Attributes
     ----------
-    ids : list[integer]
+    ids : ndarray
         IDs for each cluster in the dataset
     indices : ndarray
         Data indices for random training & validation datasets
     labels : Tensor
         Supervised labels for dark matter cross-section for each cluster
+    images : Tensor
+        Lensing and X-ray maps for each cluster
     """
     def __init__(self, data_path: str):
         """
@@ -35,21 +38,32 @@ class DarkDataset(Dataset):
 
         # Load data from file
         with open(data_path, 'rb') as file:
-            params, images = pickle.load(file)
+            labels, images = pickle.load(file)
 
-        self.images = torch.from_numpy(np.delete(images, -1, axis=-1))
-        self.labels = torch.tensor(params['label'])
+        self.images = np.moveaxis(np.delete(images, -1, axis=-1), 3, 1)
+
+        self.labels = np.array(labels['label'])
+        self.labels = np.where(self.labels == 0, 0.03, self.labels)
+        self.labels = np.log10(self.labels)
 
         # Uses cluster IDs if provided, otherwise, number dataset in order
-        if 'clusterID' in params:
-            self.ids = params['clusterID']
+        if 'clusterID' in labels:
+            self.ids = np.array(labels['clusterID'])
         else:
             self.ids = np.arange(self.images.shape[0])
+
+        # Balance the dataset
+        self.labels, (self.images, self.ids) = _balance_data(
+            self.labels,
+            [self.images, self.ids],
+        )
+        self.labels = torch.from_numpy(self.labels).float()[:, None]
+        self.images = torch.from_numpy(self.images).float()
 
     def __len__(self) -> int:
         return self.images.shape[0]
 
-    def __getitem__(self, idx: int) -> tuple[np.ndarray, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
         """
         Gets the training data for the given index
 
@@ -66,11 +80,39 @@ class DarkDataset(Dataset):
         return self.ids[idx], self.labels[idx], self.images[idx]
 
 
+def _balance_data(labels: ndarray, data: list[ndarray]) -> tuple[ndarray, list[ndarray]]:
+    """
+    Balances training data so that there is an equal amount of each class
+    
+    Parameters
+    ----------
+    labels : ndarray
+        Classification labels to balance
+    data : list[ndarray]
+        Corresponding datasets to balance based off labels
+    
+    Returns
+    -------
+    
+    """
+    idxs = []
+
+    # Calculate the number of each class
+    classes, class_counts = np.unique(labels, return_counts=True)
+    class_diffs = class_counts - np.min(class_counts)
+
+    # Find indices that have an equal amount of each class
+    for class_value, class_diff in zip(classes, class_diffs):
+        idxs.extend(np.argwhere(labels == class_value)[class_diff:, 0])
+
+    return labels[idxs], [dataset[idxs] for dataset in data]
+
+
 def data_init(
         data_path: str,
         batch_size: int = 120,
         val_frac: float = 0.1,
-        indices: np.ndarray = None) -> tuple[DataLoader, DataLoader]:
+        indices: ndarray = None) -> tuple[DataLoader, DataLoader]:
     """
     Initialises training and validation datasets
 
