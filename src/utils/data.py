@@ -8,6 +8,7 @@ import numpy as np
 from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Subset
+from torchvision.transforms import v2
 
 from src.utils.utils import get_device
 
@@ -26,6 +27,8 @@ class DarkDataset(Dataset):
         Supervised labels for dark matter cross-section for each cluster
     images : Tensor
         Lensing and X-ray maps for each cluster
+    transform : Compose
+        Image augmentation transform
     """
     def __init__(self, data_path: str):
         """
@@ -34,31 +37,42 @@ class DarkDataset(Dataset):
         data_path : string
             Path to the data file with the cluster dataset
         """
+        idxs = []
+        sims = ['CDM+baryons', 'SIDM0.1+baryons', 'SIDM1+baryons']
         self.indices = None
 
         # Load data from file
         with open(data_path, 'rb') as file:
             labels, images = pickle.load(file)
 
-        self.images = np.moveaxis(np.delete(images, -1, axis=-1), 3, 1)
+        # Get specified sim data
+        for sim in sims:
+            idxs.extend(np.argwhere(np.array(labels['sim']) == sim).flatten())
 
-        self.labels = np.array(labels['label'])
-        self.labels = np.where(self.labels == 0, 0.03, self.labels)
-        self.labels = np.log10(self.labels)
+        # Remove stellar maps
+        self.images = np.moveaxis(np.delete(images, -1, axis=-1), 3, 1)[idxs]
+
+        # Change labels to one-hot class labels
+        self.labels = np.array(labels['label'])[idxs]
+        classes = np.unique(self.labels)
+        mapping = dict(zip(classes, np.arange(classes.size)))
+        self.labels = np.vectorize(lambda x: mapping[x])(self.labels)
 
         # Uses cluster IDs if provided, otherwise, number dataset in order
         if 'clusterID' in labels:
-            self.ids = np.array(labels['clusterID'])
+            self.ids = np.array(labels['clusterID'])[idxs]
         else:
             self.ids = np.arange(self.images.shape[0])
 
-        # Balance the dataset
-        self.labels, (self.images, self.ids) = _balance_data(
-            self.labels,
-            [self.images, self.ids],
-        )
-        self.labels = torch.from_numpy(self.labels).float()[:, None]
+        self.labels = torch.from_numpy(self.labels)[:, None]
         self.images = torch.from_numpy(self.images).float()
+
+        # Image augmentations
+        self.transform = v2.Compose([
+            v2.RandomHorizontalFlip(p=0.5),
+            v2.RandomVerticalFlip(p=0.5),
+            v2.RandomRotation(degrees=(0, 180)),
+        ])
 
     def __len__(self) -> int:
         return self.images.shape[0]
@@ -75,9 +89,9 @@ class DarkDataset(Dataset):
         Returns
         -------
         tuple[ndarray, Tensor, Tensor]
-            Cluster ID, dark matter cross-section, and image map
+            Cluster ID, dark matter cross-section, and augmented image map
         """
-        return self.ids[idx], self.labels[idx], self.images[idx]
+        return self.ids[idx], self.labels[idx], self.transform(self.images[idx])
 
 
 def _balance_data(labels: ndarray, data: list[ndarray]) -> tuple[ndarray, list[ndarray]]:
@@ -141,7 +155,9 @@ def data_init(
 
     # If network hasn't trained on data yet, randomly separate training and validation
     if indices is None or indices.size != len(dataset):
-        indices = np.random.choice(len(dataset), len(dataset), replace=False)
+        # indices = np.random.choice(len(dataset), len(dataset), replace=False)
+        indices = np.arange(len(dataset))
+        np.random.shuffle(indices)
 
     dataset.indices = indices
 

@@ -8,7 +8,6 @@ import yaml
 import torch
 import numpy as np
 from numpy import ndarray
-from netloader.network import Network
 
 
 def _interactive_check() -> bool:
@@ -47,41 +46,25 @@ def get_device() -> tuple[dict, torch.device]:
     return kwargs, device
 
 
-def load_network(
-        load_num: int,
-        states_dir: str,
-        network: Network) -> tuple[int, Network, tuple[list, list]] | None:
+def save_name(num: int, states_dir: str, name: str) -> str:
     """
-    Loads the network from a previously saved state
-
-    Can account for changes in the network
+    Standardises the network save file naming
 
     Parameters
     ----------
-    load_num : integer
-        File number of the saved state
+    num : integer
+        File number
     states_dir : string
-        Directory to the save files
-    network : Network
-        The network to append saved state to
+        Directory of network saves
+    name : string
+        Name of the network
 
     Returns
     -------
-    tuple[int, Encoder | Decoder, Optimizer, ReduceLROnPlateau, tuple[list, list]]
-        The initial epoch, the updated network, optimizer
-        and scheduler, and the training and validation losses
+    string
+        Path to the network save file
     """
-    state = torch.load(f'{states_dir}{network.name}_{load_num}.pth', map_location=get_device()[1])
-
-    # Apply the saved states to the new network
-    initial_epoch = state['epoch']
-    network.load_state_dict(network.state_dict() | state['state_dict'])
-    network.optimiser.load_state_dict(state['optimiser'])
-    network.scheduler.load_state_dict(state['scheduler'])
-    train_loss = state['train_loss']
-    val_loss = state['val_loss']
-
-    return initial_epoch, network, (train_loss, val_loss)
+    return f'{states_dir}{name}_{num}.pth'
 
 
 def name_sort(

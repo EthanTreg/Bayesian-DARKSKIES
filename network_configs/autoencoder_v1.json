@@ -1,0 +1,53 @@
+{
+  "net": {
+    "dropout_prob": 0.3,
+    "2d": 1
+  },
+  "layers": [
+    {
+      "type": "composite",
+      "channels": 128,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "pool",
+      "padding": 0
+    },
+    {
+      "type": "composite",
+      "channels": 256,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "pool",
+      "padding": 0
+    },
+    {
+      "type": "composite",
+      "channels": 256,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "conv_transpose",
+      "filters": 128
+    },
+    {
+      "type": "composite",
+      "channels": 128,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "conv_transpose",
+      "filters": 64
+    },
+    {
+      "type": "composite",
+      "channels": 128,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "convolutional",
+      "filters": 2
+    }
+  ]
+}

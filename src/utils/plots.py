@@ -202,38 +202,55 @@ def _legend(labels: list | ndarray, columns: int = 2) -> matplotlib.legend.Legen
     return legend
 
 
-def plot_loss(plots_dir: str, train_loss: list, val_loss: list):
+def plot_performance(
+        plots_dir: str,
+        name: str,
+        y_label: str,
+        val: list,
+        log_y: bool = True,
+        train: list = None):
     """
-    Plots training and validation loss as a function of epochs
+    Plots training and validation performance as a function of epochs
 
     Parameters
     ----------
     plots_dir : string
         Directory to save plots
-    train_loss : list
-        Training losses
-    val_loss : list
-        Validation losses
+    name : string
+        File name to save plot
+    y_label : string
+        Performance metric
+    val : list
+        Validation performance
+    log_y : boolean, default = True
+        If y-axis should be logged
+    train : list, default = None
+        Training performance
     """
     plt.figure(figsize=FIG_SIZE, constrained_layout=True)
-    plt.plot(train_loss, label='Training Loss')
-    plt.plot(val_loss, label='Validation Loss')
+
+    if train is not None:
+        plt.plot(train, label='Training')
+
+    plt.plot(val, label='Validation')
     plt.xticks(fontsize=MINOR)
     plt.yticks(fontsize=MINOR)
     plt.yticks(fontsize=MINOR, minor=True)
     plt.xlabel('Epoch', fontsize=MINOR)
-    plt.ylabel('Loss', fontsize=MINOR)
-    plt.yscale('log')
+    plt.ylabel(y_label, fontsize=MINOR)
     plt.text(
         0.8, 0.75,
-        f'Final loss: {val_loss[-1]:.3e}',
+        f'Final: {val[-1]:.3e}',
         fontsize=MINOR,
         transform=plt.gca().transAxes
     )
 
+    if log_y:
+        plt.yscale('log')
+
     legend = plt.legend(fontsize=MAJOR)
     legend.get_frame().set_alpha(None)
-    plt.savefig(f'{plots_dir}Losses.png', transparent=False)
+    plt.savefig(f'{plots_dir}{name}.png', transparent=False)
 
 
 def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):

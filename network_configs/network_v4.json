@@ -1,0 +1,35 @@
+{
+  "net": {
+    "dropout_prob": 0.2,
+    "2d": 1
+  },
+  "layers": [
+    {
+      "type": "composite",
+      "channels": 128,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "composite",
+      "channels": 256,
+      "config_path": "../network_configs/inception.json"
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "conv_depth_downscale"
+    },
+    {
+      "type": "reshape",
+      "output": [-1]
+    },
+    {
+      "type": "linear",
+      "factor": 1
+    }
+  ]
+}
