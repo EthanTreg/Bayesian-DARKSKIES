@@ -7,10 +7,149 @@ import matplotlib.pyplot as plt
 from numpy import ndarray
 from matplotlib.axes import Axes
 
+from src.utils.utils import subplot_grid
+
 MAJOR = 24
 MINOR = 20
 FIG_SIZE = (16, 9)
 SCATTER_NUM = 1000
+
+
+def _init_plot(
+        subplots: str | tuple[int, int] | list | ndarray,
+        constrained_layout: bool = True,
+        legend: bool = False,
+        subplot_titles: bool = False,
+        x_label: str = None,
+        y_label: str = None,
+        plot_kwargs: dict = None,
+        gridspec_kw: dict = None) -> dict | ndarray:
+    """
+    Initialises subplots using either mosaic or subplots
+
+    Parameters
+    ----------
+    subplots : string | tuple[integer, integer] | list | ndarray
+        Argument for subplot or mosaic layout, mosaic will use string or list
+        and subplots will use tuple
+    constrained_layout : boolean, default = True
+        If constrained_layout should be used, if so, gridspec_kw will not be used
+    legend : boolean, default = False,
+        If the figure will have a legend at the top, then space will be made
+    subplot_titles : bool, default = False,
+        If each subplot has a title
+    x_label : string, default = None
+        X label for the plot
+    y_label : string, default = None
+        Y label for the plot
+    plot_kwargs : dict, default = None
+        Optional arguments for the subplot or mosaic function, excluding gridspec_kw
+    gridspec_kw : dict, default = None
+        Gridspec arguments for the subplot or mosaic function
+
+    Returns
+    -------
+    dictionary | ndarray
+        Subplot axes
+    """
+    text_offset = 0.03
+    gridspec = {
+        'top': 0.95,
+        'bottom': 0.05,
+        'left': 0.06,
+        'right': 0.99,
+        'hspace': 0.05,
+        'wspace': 0.75,
+    }
+
+    if not plot_kwargs:
+        plot_kwargs = {}
+
+    # Gridspec commands for optional layouts
+    if legend:
+        gridspec['top'] -= text_offset
+
+    if subplot_titles:
+        gridspec['hspace'] += 0.2
+        gridspec['top'] -= text_offset
+
+    if x_label:
+        gridspec['bottom'] += text_offset
+
+    if y_label:
+        gridspec['left'] += text_offset
+
+    if gridspec_kw:
+        gridspec = gridspec | gridspec_kw
+
+    if constrained_layout:
+        gridspec = {}
+
+    # Plots either subplot or mosaic
+    if isinstance(subplots, tuple):
+        _, axes = plt.subplots(
+            *subplots,
+            figsize=FIG_SIZE,
+            constrained_layout=constrained_layout,
+            gridspec_kw=gridspec,
+            **plot_kwargs,
+        )
+    else:
+        _, axes = plt.subplot_mosaic(
+            subplots,
+            figsize=FIG_SIZE,
+            constrained_layout=constrained_layout,
+            gridspec_kw=gridspec,
+            **plot_kwargs,
+        )
+
+    if x_label:
+        plt.figtext(0.5, 0.02, x_label, ha='center', va='center', fontsize=MAJOR)
+
+    if y_label:
+        plt.figtext(
+            0.02,
+            0.5,
+            y_label,
+            ha='center',
+            va='center',
+            rotation='vertical',
+            fontsize=MAJOR,
+        )
+
+    return axes
+
+
+def _legend(labels: list | ndarray, columns: int = 2) -> matplotlib.legend.Legend:
+    """
+    Plots a legend across the top of the plot
+
+    Parameters
+    ----------
+    labels : list | ndarray
+        Legend matplotlib handles and labels as an array to be unpacked into handles and labels
+    columns : integer, default = 2
+        Number of columns for the legend
+
+    Returns
+    -------
+    Legend
+        Legend object
+    """
+    legend = plt.figlegend(
+        *labels,
+        loc='lower center',
+        ncol=columns,
+        bbox_to_anchor=(0.5, 0.91),
+        fontsize=MAJOR,
+    )
+    legend.get_frame().set_alpha(None)
+
+    for handle in legend.legendHandles:
+        if isinstance(handle, matplotlib.collections.PathCollection):
+            handle.set_sizes([100])
+
+    return legend
 
 
 def _plot_histogram(
@@ -71,135 +210,6 @@ def _plot_histogram(
         return twin_axis
 
     return None
-
-
-def _init_plot(
-        subplots: str | tuple[int, int] | list | ndarray,
-        legend: bool = False,
-        subplot_titles: bool = False,
-        x_label: str = None,
-        y_label: str = None,
-        plot_kwargs: dict = None,
-        gridspec_kw: dict = None) -> dict | ndarray:
-    """
-    Initialises subplots using either mosaic or subplots
-
-    Parameters
-    ----------
-    subplots : string | tuple[integer, integer] | list | ndarray
-        Argument for subplot or mosaic layout, mosaic will use string or list
-        and subplots will use tuple
-    legend : boolean, default = False,
-        If the figure will have a legend at the top, then space will be made
-    subplot_titles : bool, default = False,
-        If each subplot has a title
-    x_label : string, default = None
-        X label for the plot
-    y_label : string, default = None
-        Y label for the plot
-    plot_kwargs : dict, default = None
-        Optional arguments for the subplot or mosaic function, excluding gridspec_kw
-    gridspec_kw : dict, default = None
-        Gridspec arguments for the subplot or mosaic function
-
-    Returns
-    -------
-    dictionary | ndarray
-        Subplot axes
-    """
-    text_offset = 0.03
-    gridspec = {
-        'top': 0.95,
-        'bottom': 0.05,
-        'left': 0.06,
-        'right': 0.99,
-        'hspace': 0.05,
-        'wspace': 0.75,
-    }
-
-    if not plot_kwargs:
-        plot_kwargs = {}
-
-    # Gridspec commands for optional layouts
-    if legend:
-        gridspec['top'] -= text_offset
-
-    if subplot_titles:
-        gridspec['hspace'] += 0.2
-        gridspec['top'] -= text_offset
-
-    if x_label:
-        gridspec['bottom'] += text_offset
-
-    if y_label:
-        gridspec['left'] += text_offset
-
-    if gridspec_kw:
-        gridspec = gridspec | gridspec_kw
-
-    # Plots either subplot or mosaic
-    if isinstance(subplots, tuple):
-        _, axes = plt.subplots(
-            *subplots,
-            figsize=FIG_SIZE,
-            gridspec_kw=gridspec,
-            **plot_kwargs,
-        )
-    else:
-        _, axes = plt.subplot_mosaic(
-            subplots,
-            figsize=FIG_SIZE,
-            gridspec_kw=gridspec,
-            **plot_kwargs,
-        )
-
-    if x_label:
-        plt.figtext(0.5, 0.02, x_label, ha='center', va='center', fontsize=MAJOR)
-
-    if y_label:
-        plt.figtext(
-            0.02,
-            0.5,
-            y_label,
-            ha='center',
-            va='center',
-            rotation='vertical',
-            fontsize=MAJOR,
-        )
-
-    return axes
-
-
-def _legend(labels: list | ndarray, columns: int = 2) -> matplotlib.legend.Legend:
-    """
-    Plots a legend across the top of the plot
-
-    Parameters
-    ----------
-    labels : list | ndarray
-        Legend matplotlib handles and labels as an array to be unpacked into handles and labels
-    columns : integer, default = 2
-        Number of columns for the legend
-
-    Returns
-    -------
-    Legend
-        Legend object
-    """
-    legend = plt.figlegend(
-        *labels,
-        loc='lower center',
-        ncol=columns,
-        bbox_to_anchor=(0.5, 0.91),
-        fontsize=MAJOR,
-    )
-    legend.get_frame().set_alpha(None)
-
-    for handle in legend.legendHandles:
-        if isinstance(handle, matplotlib.collections.PathCollection):
-            handle.set_sizes([100])
-
-    return legend
 
 
 def plot_performance(
@@ -279,35 +289,38 @@ def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
     plt.savefig(f'{plots_dir}Parameter_Comparison.png', transparent=False)
 
 
-def plot_param_distribution(
+def plot_distributions(
         plots_dir: str,
-        data: tuple[ndarray, ndarray],
+        data: ndarray,
+        labels: ndarray,
         y_axis: bool = True,
-        labels: tuple[str, str] = None):
+        num_plots: int = 16):
     """
-    Plots the distribution of two datasets on two scales
+    Plots the distributions for a number of examples
 
     Parameters
     ----------
     plots_dir : string
         Directory to save plots
-    data : tuple[ndarray, ndarray]
-        Datasets to plot the distributions of
+    data : ndarray
+        Distributions to plot
+    labels : ndarray
+        Target values for the distributions
     y_axis : boolean, default = True
         If y-axis should be plotted
-    labels : tuple[string, string], default = None
-        Labels for the two datasets
+    num_plots : integer, default = 16
+        Number of distributions to plot
     """
-    plt.figure(figsize=FIG_SIZE, constrained_layout=True)
-    axis = plt.gca()
-    twin_axis = _plot_histogram(data[0], axis, labels=labels, data_twin=data[1])
+    data_range = [np.min(labels), np.max(labels)]
+    data_range[0] -= 0.1 * (data_range[1] - data_range[0])
+    data_range[1] += 0.1 * (data_range[1] - data_range[0])
+    axes = _init_plot(subplot_grid(num_plots))
 
-    if not y_axis:
-        axis.tick_params(labelleft=False, left=False)
-        twin_axis.tick_params(labelright=False, right=False)
+    for label, datum, axis in zip(labels, data, axes.values()):
+        _plot_histogram(datum, axis, hist_kwargs={'range': data_range})
+        axis.set_title(label, fontsize=MINOR)
 
-    _legend(np.hstack((
-        axis.get_legend_handles_labels(),
-        twin_axis.get_legend_handles_labels(),
-    )))
+        if not y_axis:
+            axis.tick_params(labelleft=False, left=False)
+
     plt.savefig(f'{plots_dir}Parameter_Distribution.png')

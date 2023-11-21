@@ -19,6 +19,10 @@ class DarkDataset(Dataset):
 
     Attributes
     ----------
+    transform : tuple[float, float]
+        Label min and range for 0-1 normalisation
+    mapping : dictionary
+        Mapping between one hot classes and class values
     ids : ndarray
         IDs for each cluster in the dataset
     indices : ndarray
@@ -27,10 +31,15 @@ class DarkDataset(Dataset):
         Supervised labels for dark matter cross-section for each cluster
     images : Tensor
         Lensing and X-ray maps for each cluster
-    transform : Compose
+    aug : Compose
         Image augmentation transform
+
+    Methods
+    -------
+    one_hot()
+        Swaps labels between one hot classes and class values
     """
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, transform: tuple[float, float] = None):
         """
         Parameters
         ----------
@@ -38,7 +47,8 @@ class DarkDataset(Dataset):
             Path to the data file with the cluster dataset
         """
         idxs = []
-        sims = ['CDM+baryons', 'SIDM0.1+baryons', 'SIDM1+baryons']
+        # sims = ['CDM+baryons', 'SIDM0.1+baryons', 'SIDM1+baryons']
+        sims = ['vdSIDM+baryons']
         self.indices = None
 
         # Load data from file
@@ -52,11 +62,19 @@ class DarkDataset(Dataset):
         # Remove stellar maps
         self.images = np.moveaxis(np.delete(images, -1, axis=-1), 3, 1)[idxs]
 
-        # Change labels to one-hot class labels
+        # Create labels
         self.labels = np.array(labels['label'])[idxs]
-        classes = np.unique(self.labels)
-        mapping = dict(zip(classes, np.arange(classes.size)))
-        self.labels = np.vectorize(lambda x: mapping[x])(self.labels)
+        self.labels = np.where(self.labels == 0, 10 ** -1.5, self.labels)
+        self.labels = np.round(np.log10(self.labels), 1)
+        self.labels, self.transform = data_normalisation(
+            self.labels,
+            mean=False,
+            transform=transform,
+        )
+
+        # Create one-hot class labels
+        classes = np.unique(self.labels).astype(np.single)
+        self.mapping = dict(zip(np.arange(classes.size).astype(np.single), classes))
 
         # Uses cluster IDs if provided, otherwise, number dataset in order
         if 'clusterID' in labels:
@@ -64,11 +82,12 @@ class DarkDataset(Dataset):
         else:
             self.ids = np.arange(self.images.shape[0])
 
-        self.labels = torch.from_numpy(self.labels)[:, None]
+        self.labels = torch.from_numpy(self.labels).float()[:, None]
         self.images = torch.from_numpy(self.images).float()
+        self.one_hot(True)
 
         # Image augmentations
-        self.transform = v2.Compose([
+        self.aug = v2.Compose([
             v2.RandomHorizontalFlip(p=0.5),
             v2.RandomVerticalFlip(p=0.5),
             v2.RandomRotation(degrees=(0, 180)),
@@ -91,7 +110,34 @@ class DarkDataset(Dataset):
         tuple[ndarray, Tensor, Tensor]
             Cluster ID, dark matter cross-section, and augmented image map
         """
-        return self.ids[idx], self.labels[idx], self.transform(self.images[idx])
+        return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
+
+    def one_hot(self, one_hot_state: bool):
+        """
+        Swaps mapping to transform labels between one hot classes and class values
+
+        Parameters
+        ----------
+        one_hot_state : boolean
+            If labels should be transformed to one-hot labels or class values
+        """
+        if ((one_hot_state and self.labels.dtype == torch.long) or
+                (not one_hot_state and self.labels.dtype != torch.long)):
+            return
+
+        if one_hot_state:
+            mapping = {value: key for key, value in self.mapping.items()}
+        else:
+            mapping = self.mapping
+
+        if self.labels.dtype == torch.long:
+            output_type = torch.float
+            self.labels = self.labels.float()
+        else:
+            output_type = torch.long
+
+        self.labels.apply_(lambda x: mapping[x])
+        self.labels = self.labels.type(output_type)
 
 
 def _balance_data(labels: ndarray, data: list[ndarray]) -> tuple[ndarray, list[ndarray]]:
@@ -122,8 +168,50 @@ def _balance_data(labels: ndarray, data: list[ndarray]) -> tuple[ndarray, list[n
     return labels[idxs], [dataset[idxs] for dataset in data]
 
 
+def data_normalisation(
+        data: np.ndarray,
+        mean: bool = True,
+        axis: int = None,
+        transform: tuple[float, float] = None) -> tuple[np.ndarray, tuple[float, float]]:
+    """
+    Transforms data either by normalising or
+    scaling between 0 & 1 depending on if mean is true or false.
+
+    Parameters
+    ----------
+    data : ndarray
+        Data to be normalised
+    mean : boolean, default = True
+        If data should be normalised or scaled between 0 and 1
+    axis : integer, default = None
+        Which axis to normalise over, if none, normalise over all axes
+    transform: tuple[float, float], default = None
+        If transformation values exist already
+
+    Returns
+    -------
+    tuple[ndarray, tuple[float, float]]
+        Transformed data & transform values
+    """
+    if mean and not transform:
+        transform = [np.mean(data, axis=axis), np.std(data, axis=axis)]
+    elif not mean and not transform:
+        transform = [
+            np.min(data, axis=axis),
+            np.max(data, axis=axis) - np.min(data, axis=axis)
+        ]
+
+    if axis:
+        data = (data - np.expand_dims(transform[0], axis=axis)) /\
+               np.expand_dims(transform[1], axis=axis)
+    else:
+        data = (data - transform[0]) / transform[1]
+
+    return data, transform
+
+
 def data_init(
-        data_path: str,
+        dataset: DarkDataset,
         batch_size: int = 120,
         val_frac: float = 0.1,
         indices: ndarray = None) -> tuple[DataLoader, DataLoader]:
@@ -150,7 +238,6 @@ def data_init(
     kwargs = get_device()[0]
 
     # Fetch dataset & calculate validation fraction
-    dataset = DarkDataset(data_path)
     val_amount = max(int(len(dataset) * val_frac), 1)
 
     # If network hasn't trained on data yet, randomly separate training and validation

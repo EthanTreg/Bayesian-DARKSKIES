@@ -1,6 +1,6 @@
 {
   "net": {
-    "dropout_prob": 0.1,
+    "dropout_prob": 0.01,
     "2d": 1
   },
   "layers": [
@@ -82,8 +82,7 @@
     },
     {
       "type": "linear",
-      "factor": 3,
-      "dropout": 1
+      "factor": 3
     }
   ]
 }

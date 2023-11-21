@@ -88,8 +88,8 @@ def training(
         network.scheduler(losses[1][-1])
 
         try:
-            network.accuracy.append(network.num_correct.cpu().item() / len(loaders[1].dataset))
-            accuracy = f'Accuracy: {network.accuracy[-1] * 100:.1f}%\t'
+            network.accuracy.append(network.num_correct / len(loaders[1].dataset) * 100)
+            accuracy = f'Accuracy: {network.accuracy[-1]:.1f}%\t'
         except AttributeError:
             accuracy = ''
 
@@ -103,8 +103,20 @@ def training(
               f'Time: {time() - t_initial:.1f}')
 
     # Final validation
+    try:
+        network.num_correct = 0
+    except AttributeError:
+        pass
+
     network.train(False)
     losses[1].append(train_val(loaders[1], network))
-    print(f'\nFinal validation loss: {losses[1][-1]:.3e}')
+
+    try:
+        network.accuracy.append(network.num_correct / len(loaders[1].dataset) * 100)
+        accuracy = f'Accuracy: {network.accuracy[-1]:.1f}%\t'
+    except AttributeError:
+        accuracy = ''
+
+    print(f'\nFinal validation {accuracy}\tLoss: {losses[1][-1]:.3e}')
 
     return losses

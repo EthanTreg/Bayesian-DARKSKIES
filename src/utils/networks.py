@@ -31,6 +31,8 @@ class NeuralNetwork:
         Current epoch of training
     num_correct : integer, default = 0
         Number of correct predictions if using cross entropy loss
+    description : string, default = ''
+        Description of the network training
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current network training and validation losses
     loss_function : Module, default = MSELoss
@@ -56,6 +58,7 @@ class NeuralNetwork:
             save_num: int,
             states_dir: str,
             network: Network,
+            description: str = '',
             loss_function: nn.Module = nn.MSELoss()):
         """
         Parameters
@@ -66,12 +69,15 @@ class NeuralNetwork:
             Directory to save the network
         network : Network
             Network to predict low-dimensional data
+        description : string, default = ''
+            Description of the network training
         loss_function : Module, default = MSELoss
             Loss function to use
         """
         self.train_state = True
         self.epoch = 0
         self.num_correct = 0
+        self.description = description
         self.accuracy = []
         self.losses = ([], [])
         self.network = network
@@ -147,20 +153,23 @@ class NeuralNetwork:
         """
         output = self.network(high_dim)
 
+        # Default shape is (N, L), but cross entropy expects (N)
         if isinstance(self.loss_function, nn.CrossEntropyLoss):
             low_dim = low_dim.squeeze()
 
         loss = self.loss_function(output, low_dim)
 
+        # Update network
         if self.train_state:
             self.network.optimiser.zero_grad()
             loss.backward()
             self.network.optimiser.step()
 
+        # Calculate accuracy if using cross entropy
         if isinstance(self.loss_function, nn.CrossEntropyLoss):
             self.num_correct += torch.count_nonzero(
                 torch.argmax(output, dim=-1) == low_dim,
-            )
+            ).detach().cpu().item()
 
         return loss.item()
 
@@ -178,7 +187,15 @@ class NeuralNetwork:
             Data indices for random training & validation datasets
         """
         if self.save_path:
-            _save(epoch, self.save_path, losses, indices, self.network, accuracy=self.accuracy)
+            _save(
+                epoch,
+                self.save_path,
+                losses,
+                indices,
+                self.network,
+                description=self.description,
+                accuracy=self.accuracy,
+            )
 
     def scheduler(self, loss):
         """
@@ -232,12 +249,16 @@ class NormFlow:
         If network and flow should be in train or eval state
     train_flow : boolean, default = True
         If normalising flow should be trained
-    train_net : boolean, default = True
+    train_net : boolean, default = False
         If network should be trained
     flow_epoch : integer, default = 0
         Current epoch of flow training
     net_epoch : integer, default = 0
         Current epoch of network training
+    net_layers : integer, default = None
+        Number of layers in the network to use, if None use all layers
+    description : string, default = ''
+        Description of the network training
     flow_losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current flow training and validation losses
     net_losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
@@ -258,7 +279,15 @@ class NormFlow:
     predict(data)
         Generates probability distributions for the given data
     """
-    def __init__(self, states_dir: str, save_num: tuple[int, int], flow: NSF, network: Network):
+    def __init__(
+            self,
+            states_dir: str,
+            save_num: tuple[int, int],
+            classes: Tensor,
+            flow: NSF,
+            network: Network,
+            net_layers: int = None,
+            description: str = ''):
         """
         Parameters
         ----------
@@ -266,17 +295,26 @@ class NormFlow:
             Directory to save the network and flow
         save_num : tuple[integer]
             File numbers to save the flow and network
+        classes : Tensor
+            Classes that the network tries to predict
         flow : NSF
             Normalising flow to predict low-dimensional data distribution
         network : Network
             Network to condition the normalising flow from high-dimensional data
+        net_layers : integer, default = None
+            Number of layers in the network to use, if None use all layers
+        description : string, default = ''
+            Description of the network training
         """
         self.train_state = True
+        self.train_net = False
         self.train_flow = True
-        self.train_net = True
         self.flow_epoch = self.net_epoch = 0
+        self.net_layers = net_layers
+        self.description = description
         self.flow_losses = ([], [])
         self.net_losses = ([], [])
+        self.classes = classes
         self.flow = flow
         self.network = network
 
@@ -328,6 +366,7 @@ class NormFlow:
         """
         indices = None
 
+        # Network load
         if load_num[0]:
             net_path = save_name(load_num[0], states_dir, self.network.name)
 
@@ -336,6 +375,7 @@ class NormFlow:
             except FileNotFoundError:
                 log.warning(f'{net_path} dose not exist\nNo state will be loaded')
 
+        # Flow load
         if load_num[1]:
             flow_path = save_name(load_num[1], states_dir, self.flow.name)
 
@@ -362,19 +402,29 @@ class NormFlow:
         Tensor
             Loss from the flow's predictions'
         """
+        # Temporarily truncate the network
+        self.network.layer_num = self.net_layers
+
+        # Calculate the loss
         output = self.network(high_dim)
         loss = -self.flow(output).log_prob(low_dim).mean()
 
-        if self.train_flow or self.train_net:
-            self.flow.optimiser.zero_grad()
-            self.network.optimiser.zero_grad()
-            loss.backward()
+        if not self.train_state:
+            return loss.item()
+
+        # Update network
+        self.flow.optimiser.zero_grad()
+        self.network.optimiser.zero_grad()
+        loss.backward()
 
         if self.train_net:
             self.network.optimiser.step()
 
         if self.train_flow:
             self.flow.optimiser.step()
+
+        # Remove network truncation
+        self.network.layer_num = None
 
         return loss.item()
 
@@ -392,10 +442,24 @@ class NormFlow:
             Data indices for random training & validation datasets
         """
         if self.save_path_flow and self.train_flow:
-            _save(epoch, self.save_path_flow, losses, indices, self.flow)
+            _save(
+                epoch,
+                self.save_path_flow,
+                losses,
+                indices,
+                self.flow,
+                description=self.description,
+            )
 
         if self.save_path_net and self.train_net:
-            _save(epoch, self.save_path_net, losses, indices, self.network)
+            _save(
+                epoch + self.net_epoch,
+                self.save_path_net,
+                losses,
+                indices,
+                self.network,
+                description=self.description,
+            )
 
     def scheduler(self, loss: Tensor):
         """
@@ -426,7 +490,11 @@ class NormFlow:
         Tensor
             Probability distributions for the given data
         """
-        return self.flow(data).sample((1000,))
+        return torch.transpose(
+            self.flow(self.network(data)).sample((1000,)).squeeze(),
+            0,
+            1,
+        )
 
 
 def _load(
@@ -480,6 +548,7 @@ def _save(
         losses: tuple[list[Tensor], list[Tensor]],
         indices: ndarray,
         network: Network | NSF,
+        description: str = '',
         accuracy: list[float] = None):
     """
     Saves the network to the given path
@@ -496,9 +565,14 @@ def _save(
         Data indices for random training & validation datasets
     network : Network | NSF
         Network to save
+    description : string, default = ''
+        Description of the network training
+    accuracy : list[float], default = None
+        Network accuracy per epoch
     """
     state = {
         'epoch': epoch,
+        'description': description,
         'train_loss': losses[0],
         'val_loss': losses[1],
         'indices': indices,
