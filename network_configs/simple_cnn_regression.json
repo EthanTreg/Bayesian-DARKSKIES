@@ -1,7 +1,10 @@
 {
   "net": {
+    "checkpoints": 1,
     "2d": 1,
-    "description": "Inception layers"
+    "convolutional": {
+      "dropout": 0.1
+    }
   },
   "layers": [
     {
@@ -12,17 +15,8 @@
       "type": "pool"
     },
     {
-      "type": "composite",
-      "channels": 128,
-      "config_path": "../network_configs/inception.json"
-    },
-    {
-      "type": "pool"
-    },
-    {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "convolutional",
+      "filters": 32
     },
     {
       "type": "pool"
@@ -32,8 +26,15 @@
       "filters": 64
     },
     {
+      "type": "pool"
+    },
+    {
       "type": "reshape",
       "output": [-1]
+    },
+    {
+      "type": "linear",
+      "features": 128
     },
     {
       "type": "linear",

@@ -9,21 +9,20 @@ import numpy as np
 import matplotlib as mpl
 from numpy import ndarray
 from zuko.flows import NSF
-from torch import nn
 from torch.utils.data import DataLoader
 from netloader.network import Network
 
+import src.utils.networks as nets
 from src.utils.training import training
-from src.utils.data import DarkDataset, data_init
+from src.utils.data import DarkDataset, loader_init
 from src.utils.utils import open_config, get_device
-from src.utils.networks import NeuralNetwork, NormFlow
-from src.utils.plots import plot_performance, plot_distributions
+from src.utils.plots import plot_performance, plot_distributions, plot_param_comparison
 
 
 def predict_labels(
         output_path: str,
         loader: DataLoader,
-        network: NeuralNetwork | NormFlow) -> tuple[list[int], ndarray, ndarray]:
+        network: nets.BaseNetwork) -> tuple[list[int], ndarray, ndarray]:
     """
     Predicts labels or distributions using the network or flow & saves the results to a file
 
@@ -33,7 +32,7 @@ def predict_labels(
         Path to save the predictions
     loader : DataLoader
         Dataset to generate predictions for
-    network : NeuralNetwork | NormFlow
+    network : BaseNetwork
         Network to generate predictions
 
     Returns
@@ -43,12 +42,12 @@ def predict_labels(
     """
     initial_time = time()
     bins = 100
-    one_sig = 0.159
-    two_sig = 0.023
     ids = []
+    probs = []
     maxima = []
     targets = []
     predictions = []
+    transform = loader.dataset.dataset.transform
     network.train(False)
 
     # Generate predictions
@@ -59,38 +58,30 @@ def predict_labels(
             prediction = network.predict(images.to(get_device()[1]))
             predictions.extend(prediction.cpu().numpy())
 
-    targets = np.array(targets)
-    predictions = np.array(predictions)
+    # Transform values
+    targets = np.array(targets) * transform[1] + transform[0]
+    predictions = np.array(predictions) * transform[1] + transform[0]
 
-    if isinstance(network, NormFlow):
+    if isinstance(network, nets.NormFlow):
         # Prediction statistics
         medians = np.median(predictions, axis=-1)
-        one_stds = np.array([
-            np.quantile(predictions, one_sig, axis=-1),
-            np.quantile(predictions, 1 - one_sig, axis=-1),
-        ]).swapaxes(0, 1)
-        two_stds = np.array([
-            np.quantile(predictions, two_sig, axis=-1),
-            np.quantile(predictions, 1 - two_sig, axis=-1),
-        ]).swapaxes(0, 1)
 
-        # Most likely values
-        for distribution in predictions:
-            hist, bins = np.histogram(distribution, bins=bins)
+        # Most likely values and probabilities
+        for target, distribution in zip(targets, predictions):
+            hist, bins = np.histogram(distribution, bins=bins, density=True)
+            prob = hist * (bins[1] - bins[0])
+            probs.append(prob[np.digitize(target, bins) - 1])
             maxima.append(bins[np.argmax(hist)])
 
-        maxima = np.array(maxima)
         output = np.hstack((
             np.expand_dims(ids, axis=1),
             targets,
+            np.expand_dims(probs, axis=1),
             np.expand_dims(maxima, axis=1),
             np.expand_dims(medians, axis=1),
-            one_stds,
-            two_stds,
             predictions,
         ))
-        header = ('IDs,Targets,Maxima,Medians,One sigma lower,One sigma upper,'
-                  'Two sigma lower,Two sigma upper,Distributions')
+        header = 'IDs,Targets,Probabilities,Maxima,Medians,Distributions'
     else:
         output = np.hstack((np.expand_dims(ids, axis=1), targets, predictions))
         header = 'IDs,Targets,Predictions'
@@ -103,8 +94,8 @@ def predict_labels(
 
 def init(config: dict | str = '../config.yaml') -> tuple[
         tuple[DataLoader, DataLoader],
-        NeuralNetwork,
-        NormFlow]:
+        nets.BaseNetwork,
+        nets.NormFlow]:
     """
     Initialises the network and dataloaders
 
@@ -115,7 +106,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
 
     Returns
     -------
-    tuple[tuple[Dataloader, Dataloader], NeuralNetwork, NormFlow]
+    tuple[tuple[Dataloader, Dataloader], BaseNetwork, NormFlow]
         Train & validation dataloaders, neural network and flow training objects
     """
     if isinstance(config, str):
@@ -141,7 +132,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     states_dir = config['output']['network-states-directory']
 
     # Fetch dataset
-    dataset = DarkDataset(data_path, transform=(-1.5, 1.5))
+    dataset = DarkDataset(data_path)
 
     # Initialise network
     network = Network(
@@ -157,7 +148,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
         features=1,
         context=network.shapes[-2][0],
         transforms=4,
-        hidden_features=(512, 512, 256, 256)
+        hidden_features=(512, 512, 512, 512)
     ).to(device)
     flow.optimiser = torch.optim.Adam(flow.parameters(), lr=flow_learning_rate)
     flow.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -169,36 +160,33 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     flow.name = 'flow'
 
     # Create network training objects
-    dataset.one_hot(False)
-    flow = NormFlow(
+    flow = nets.NormFlow(
         states_dir,
         (net_save, flow_save),
-        torch.unique(dataset.labels),
         flow,
         network,
         net_layers=-1,
         description=flow_description,
     )
-    network = NeuralNetwork(
-        net_save,
-        states_dir,
-        network,
-        description=net_description,
-        loss_function=nn.CrossEntropyLoss(),
-    )
     flow.train_net = True
+    network = nets.Encoder(net_save, states_dir, network, description=net_description)
 
     # Load states from previous training
-    net_indices = network.load(net_load, states_dir)
-    flow_indices = flow.load(states_dir, (net_load, flow_load))
+    network.load(net_load, states_dir)
+    flow.load(states_dir, (net_load, flow_load))
 
-    if net_indices is None:
-        indices = flow_indices
+    if flow.idxs is not None:
+        idxs = flow.idxs
     else:
-        indices = net_indices
+        idxs = network.idxs
 
     # Initialise datasets
-    loaders = data_init(dataset, batch_size=batch_size, val_frac=val_frac, indices=indices)
+    dataset.normalise(transform=network.transform or flow.transform)
+    loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=idxs)
+    network.idxs = dataset.idxs
+    flow.idxs = dataset.idxs
+    network.transform = dataset.transform
+    flow.transform = dataset.transform
 
     return loaders, network, flow
 
@@ -236,41 +224,48 @@ def main(config_path: str = '../config.yaml'):
     loaders, network, flow = init(config)
 
     # Train network
-    loaders[0].dataset.dataset.one_hot(True)
-    losses = training(
-        (network.epoch, net_epochs),
-        loaders,
-        network,
-        losses=network.losses,
-    )
-    plot_performance(plots_dir, 'Net_Losses', 'Loss', losses[1], train=losses[0])
+    training((network.network.epoch, net_epochs), loaders, network)
     plot_performance(
         plots_dir,
-        'Accuracy',
-        'Accuracy (%)',
-        network.accuracy,
-        log_y=False,
+        'Net_Losses',
+        'Loss',
+        network.losses[1],
+        train=network.losses[0],
     )
-    predict_labels(predictions_path, loaders[1], network)
+    _, targets, predictions = predict_labels(predictions_path, loaders[1], network)
+    plot_param_comparison(plots_dir, targets, predictions)
+    plot_distributions(
+        plots_dir,
+        'Network_Distribution',
+        targets[np.newaxis],
+        labels=['Target', 'Prediction'],
+        data_twin=predictions[np.newaxis],
+    )
 
     # Train flow
-    loaders[0].dataset.dataset.one_hot(False)
-    losses = training(
-        (flow.flow_epoch, flow_epochs),
-        loaders,
-        flow,
-        losses=flow.flow_losses,
-    )
+    training((flow.flow.epoch, flow_epochs), loaders, flow)
     plot_performance(
         plots_dir,
         'Flow_Losses',
         'Loss',
-        losses[1],
+        flow.losses[1],
         log_y=False,
-        train=losses[0],
+        train=flow.losses[0],
     )
     _, targets, distributions = predict_labels(distributions_path, loaders[1], flow)
-    plot_distributions(plots_dir, distributions, targets.flatten())
+
+    data_range = [flow.transform[0], flow.transform[0] + flow.transform[1]]
+    data_range[0] -= 0.1 * (data_range[1] - data_range[0])
+    data_range[1] += 0.1 * (data_range[1] - data_range[0])
+    plot_distributions(
+        plots_dir,
+        'Flow_Distributions',
+        distributions,
+        y_axis=False,
+        labels=['Predictions', 'Target'],
+        hist_kwargs={'range': data_range},
+        data_twin=targets,
+    )
 
 
 if __name__ == '__main__':

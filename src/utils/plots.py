@@ -6,6 +6,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from numpy import ndarray
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 from src.utils.utils import subplot_grid
 
@@ -17,13 +18,10 @@ SCATTER_NUM = 1000
 
 def _init_plot(
         subplots: str | tuple[int, int] | list | ndarray,
-        constrained_layout: bool = True,
         legend: bool = False,
-        subplot_titles: bool = False,
         x_label: str = None,
         y_label: str = None,
-        plot_kwargs: dict = None,
-        gridspec_kw: dict = None) -> dict | ndarray:
+        plot_kwargs: dict = None) -> tuple[Figure, dict | ndarray]:
     """
     Initialises subplots using either mosaic or subplots
 
@@ -32,76 +30,53 @@ def _init_plot(
     subplots : string | tuple[integer, integer] | list | ndarray
         Argument for subplot or mosaic layout, mosaic will use string or list
         and subplots will use tuple
-    constrained_layout : boolean, default = True
-        If constrained_layout should be used, if so, gridspec_kw will not be used
     legend : boolean, default = False,
         If the figure will have a legend at the top, then space will be made
-    subplot_titles : bool, default = False,
-        If each subplot has a title
     x_label : string, default = None
         X label for the plot
     y_label : string, default = None
         Y label for the plot
     plot_kwargs : dict, default = None
         Optional arguments for the subplot or mosaic function, excluding gridspec_kw
-    gridspec_kw : dict, default = None
-        Gridspec arguments for the subplot or mosaic function
 
     Returns
     -------
-    dictionary | ndarray
-        Subplot axes
+    tuple[Figure, dictionary | ndarray]
+        Figure and subplot axes
     """
-    text_offset = 0.03
-    gridspec = {
-        'top': 0.95,
-        'bottom': 0.05,
-        'left': 0.06,
-        'right': 0.99,
-        'hspace': 0.05,
-        'wspace': 0.75,
-    }
+    text_offset = 0.04
+    bbox = [0, 0, 1, 1]
 
     if not plot_kwargs:
         plot_kwargs = {}
 
-    # Gridspec commands for optional layouts
+    # BBox for optional layouts
     if legend:
-        gridspec['top'] -= text_offset
-
-    if subplot_titles:
-        gridspec['hspace'] += 0.2
-        gridspec['top'] -= text_offset
+        bbox[3] -= 2 * text_offset
 
     if x_label:
-        gridspec['bottom'] += text_offset
+        bbox[1] += text_offset
 
     if y_label:
-        gridspec['left'] += text_offset
-
-    if gridspec_kw:
-        gridspec = gridspec | gridspec_kw
-
-    if constrained_layout:
-        gridspec = {}
+        bbox[0] += text_offset
 
     # Plots either subplot or mosaic
     if isinstance(subplots, tuple):
-        _, axes = plt.subplots(
+        fig, axes = plt.subplots(
             *subplots,
             figsize=FIG_SIZE,
-            constrained_layout=constrained_layout,
-            gridspec_kw=gridspec,
+            constrained_layout=True,
             **plot_kwargs,
         )
     else:
-        _, axes = plt.subplot_mosaic(
+        fig, axes = plt.subplot_mosaic(
             subplots,
             figsize=FIG_SIZE,
-            constrained_layout=constrained_layout,
-            gridspec_kw=gridspec,
+            constrained_layout=True,
             **plot_kwargs,
         )
+
+    fig.get_layout_engine().set(rect=bbox)
 
     if x_label:
         plt.figtext(0.5, 0.02, x_label, ha='center', va='center', fontsize=MAJOR)
@@ -117,7 +92,7 @@ def _init_plot(
             fontsize=MAJOR,
         )
 
-    return axes
+    return fig, axes
 
 
 def _legend(labels: list | ndarray, columns: int = 2) -> matplotlib.legend.Legend:
@@ -205,7 +180,7 @@ def _plot_histogram(
             twin_axis,
             log=log,
             labels=[labels[1]],
-            hist_kwargs={'color': 'orange'},
+            hist_kwargs={'color': 'orange'} | hist_kwargs,
         )
         return twin_axis
 
@@ -285,16 +260,29 @@ def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
     axis.tick_params(labelsize=MINOR)
     axis.xaxis.get_offset_text().set_visible(False)
     axis.yaxis.get_offset_text().set_size(MINOR)
+    axis.text(
+        0.1,
+        0.9,
+        rf'$\chi^2_\nu=${np.mean((y_data - x_data) ** 2 / x_data):.2f}',
+        fontsize=MINOR,
+        transform=axis.transAxes,
+    )
+    # axis.set_xscale('log')
+    # axis.set_yscale('log')
 
     plt.savefig(f'{plots_dir}Parameter_Comparison.png', transparent=False)
 
 
 def plot_distributions(
         plots_dir: str,
+        name: str,
         data: ndarray,
-        labels: ndarray,
         y_axis: bool = True,
-        num_plots: int = 16):
+        num_plots: int = 12,
+        labels: list[str] = None,
+        hist_kwargs: dict = None,
+        titles: ndarray = None,
+        data_twin: ndarray = None):
     """
     Plots the distributions for a number of examples
 
@@ -302,25 +290,59 @@ def plot_distributions(
     ----------
     plots_dir : string
         Directory to save plots
+    name : string
+        File name to save plot
     data : ndarray
-        Distributions to plot
-    labels : ndarray
-        Target values for the distributions
+        Distributions to plot, each row is a different distribution
     y_axis : boolean, default = True
         If y-axis should be plotted
     num_plots : integer, default = 16
-        Number of distributions to plot
+        Number of distributions to plot, number of rows in data will be used if rows < num_plots
+    labels : list[string], default = None
+        Labels for data and data_twin if provided
+    hist_kwargs : dictionary, default = None
+        Optional keyword arguments for plotting the histogram
+    titles : ndarray, default = None
+        Titles for the distributions
+    data_twin : ndarray, default = None
+        Twin distributions to plot, each row is a different distribution corresponding to data
     """
-    data_range = [np.min(labels), np.max(labels)]
-    data_range[0] -= 0.1 * (data_range[1] - data_range[0])
-    data_range[1] += 0.1 * (data_range[1] - data_range[0])
-    axes = _init_plot(subplot_grid(num_plots))
+    _, axes = _init_plot(subplot_grid(min(data.shape[0], num_plots)), legend=True)
 
-    for label, datum, axis in zip(labels, data, axes.values()):
-        _plot_histogram(datum, axis, hist_kwargs={'range': data_range})
-        axis.set_title(label, fontsize=MINOR)
+    if labels is None:
+        labels = (None, None)
+
+    if data_twin is None:
+        data_twin = [None] * data.shape[0]
+
+    if titles is None:
+        titles = [None] * data.shape[0]
+
+    for title, datum, datum_twin, axis in zip(titles, data, data_twin, axes.values()):
+        twin_axis = _plot_histogram(
+            datum,
+            axis,
+            labels=labels,
+            hist_kwargs=hist_kwargs,
+            data_twin=datum_twin,
+        )
+        axis.set_title(title, fontsize=MINOR)
 
         if not y_axis:
             axis.tick_params(labelleft=False, left=False)
 
-    plt.savefig(f'{plots_dir}Parameter_Distribution.png')
+        if twin_axis and not y_axis:
+            twin_axis.tick_params(labelright=False, right=False)
+
+    if twin_axis:
+        labels = np.hstack((
+            axes[0].get_legend_handles_labels(),
+            twin_axis.get_legend_handles_labels(),
+        ))
+    elif labels:
+        labels = axes[0].get_legend_handles_labels()
+
+    if labels is not None:
+        _legend(labels)
+
+    plt.savefig(f'{plots_dir}{name}.png')

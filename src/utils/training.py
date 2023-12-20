@@ -4,14 +4,13 @@ Main script for training the network
 from time import time
 
 import torch
-from torch import Tensor
 from torch.utils.data import DataLoader
 
 from src.utils.utils import get_device
-from src.utils.networks import NeuralNetwork, NormFlow
+from src.utils.networks import Encoder, NormFlow
 
 
-def train_val(loader: DataLoader, network: NeuralNetwork | NormFlow) -> float:
+def train_val(loader: DataLoader, network: Encoder | NormFlow) -> float:
     """
     Trains the network for one epoch
 
@@ -19,7 +18,7 @@ def train_val(loader: DataLoader, network: NeuralNetwork | NormFlow) -> float:
     ----------
     loader : DataLoader
         PyTorch DataLoader that contains data to train
-    network : NeuralNetwork | NormFlow
+    network : Encoder | NormFlow
         Network to use for training/validation
 
     Returns
@@ -43,9 +42,7 @@ def train_val(loader: DataLoader, network: NeuralNetwork | NormFlow) -> float:
 def training(
         epochs: tuple[int, int],
         loaders: tuple[DataLoader, DataLoader],
-        network: NeuralNetwork | NormFlow,
-        losses: tuple[list[Tensor], list[Tensor]] = None
-        ) -> tuple[list[Tensor], list[Tensor]]:
+        network: Encoder | NormFlow):
     """
     Trains & validates the network for each epoch
 
@@ -55,68 +52,31 @@ def training(
         Initial epoch & number of epochs to train
     loaders : tuple[DataLoader, DataLoader]
         Train and validation dataloaders
-    network : NeuralNetwork | NormFlow
+    network : Encoder | NormFlow
         Network to use for training
-    losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
-        Train and validation losses for each epoch, can be empty
-
-    Returns
-    -------
-    tuple[list[Tensor], list[Tensor]]
-        Train & validation losses
     """
-    if not losses:
-        losses = ([], [])
-
     # Train for each epoch
-    for epoch in range(*epochs):
+    for _ in range(*epochs):
         t_initial = time()
-        epoch += 1
+        epoch = network.epoch()
 
         # Train network
         network.train(True)
-        losses[0].append(train_val(loaders[0], network))
+        network.losses[0].append(train_val(loaders[0], network))
 
         # Validate network
-        try:
-            network.num_correct = 0
-        except AttributeError:
-            pass
-
         network.train(False)
-        losses[1].append(train_val(loaders[1], network))
-        network.scheduler(losses[1][-1])
-
-        try:
-            network.accuracy.append(network.num_correct / len(loaders[1].dataset) * 100)
-            accuracy = f'Accuracy: {network.accuracy[-1]:.1f}%\t'
-        except AttributeError:
-            accuracy = ''
+        network.losses[1].append(train_val(loaders[1], network))
+        network.scheduler()
 
         # Save training progress
-        network.save(epoch, losses, loaders[0].dataset.dataset.indices)
+        network.save()
 
         print(f'Epoch [{epoch}/{epochs[1]}]\t'
-              f'{accuracy}'
-              f'Training loss: {losses[0][-1]:.3e}\t'
-              f'Validation loss: {losses[1][-1]:.3e}\t'
+              f'Training loss: {network.losses[0][-1]:.3e}\t'
+              f'Validation loss: {network.losses[1][-1]:.3e}\t'
               f'Time: {time() - t_initial:.1f}')
 
-    # Final validation
-    try:
-        network.num_correct = 0
-    except AttributeError:
-        pass
-
     network.train(False)
-    losses[1].append(train_val(loaders[1], network))
-
-    try:
-        network.accuracy.append(network.num_correct / len(loaders[1].dataset) * 100)
-        accuracy = f'Accuracy: {network.accuracy[-1]:.1f}%\t'
-    except AttributeError:
-        accuracy = ''
-
-    print(f'\nFinal validation {accuracy}\tLoss: {losses[1][-1]:.3e}')
-
-    return losses
+    final_loss = train_val(loaders[1], network)
+    print(f'\nFinal validation loss: {final_loss:.3e}')

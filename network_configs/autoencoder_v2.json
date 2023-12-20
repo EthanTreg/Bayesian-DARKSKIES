@@ -4,7 +4,8 @@
     "checkpoints": 1,
     "convolutional": {
       "dropout": 0.05
-    }
+    },
+    "description": "Information-ordered bottleneck"
   },
   "layers": [
     {
@@ -50,11 +51,14 @@
     },
     {
       "type": "sample",
-      "features": 1
+      "features": 9216
     },
     {
       "type": "clone",
       "number": 1
+    },
+    {
+      "type": "ordered_bottleneck"
     },
     {
       "type": "linear",

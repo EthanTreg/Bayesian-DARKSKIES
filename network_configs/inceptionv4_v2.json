@@ -1,7 +1,10 @@
 {
   "net": {
     "2d": 1,
-    "description": "Almost standard InceptionV4"
+    "convolutional": {
+          "dropout": 0.05
+    },
+    "description": "Additional linear layer"
   },
   "layers": [
     {
@@ -13,7 +16,7 @@
       "config_path": "../network_configs/composite_layers/inception_a.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -22,7 +25,7 @@
       "config_path": "../network_configs/composite_layers/inception_a.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -31,7 +34,7 @@
       "config_path": "../network_configs/composite_layers/inception_a.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -40,7 +43,7 @@
       "config_path": "../network_configs/composite_layers/inception_a.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -53,7 +56,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -62,7 +65,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -71,7 +74,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -80,7 +83,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -89,7 +92,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -98,7 +101,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -107,7 +110,7 @@
       "config_path": "../network_configs/composite_layers/inception_b.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -120,7 +123,7 @@
       "config_path": "../network_configs/composite_layers/inception_c.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -129,7 +132,7 @@
       "config_path": "../network_configs/composite_layers/inception_c.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -138,7 +141,7 @@
       "config_path": "../network_configs/composite_layers/inception_c.json",
       "defaults": {
         "convolutional": {
-          "dropout": 0.01
+          "dropout": 0.05
         }
       }
     },
@@ -149,6 +152,11 @@
     {
       "type": "reshape",
       "output": [-1]
+    },
+    {
+      "type": "linear",
+      "features": 512,
+      "dropout": 0.01
     },
     {
       "type": "linear",

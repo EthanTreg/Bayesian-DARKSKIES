@@ -1,7 +1,10 @@
 {
   "net": {
     "2d": 1,
-    "description": "Inception layers"
+    "convolutional": {
+      "dropout": 0.05
+    },
+    "description": "Additional linear layers"
   },
   "layers": [
     {
@@ -29,7 +32,14 @@
     },
     {
       "type": "convolutional",
-      "filters": 64
+      "filters": 256
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "convolutional",
+      "filters": 256
     },
     {
       "type": "reshape",
@@ -37,7 +47,12 @@
     },
     {
       "type": "linear",
-      "factor": 1
+      "features": 1024
+    },
+    {
+      "type": "linear",
+      "factor": 1,
+      "dropout": 0
     }
   ]
 }

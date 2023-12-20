@@ -6,10 +6,13 @@ global-variables:
     # Path to the configuration files for the networks
     - &network_configs_directory '../network_configs/'
     # File name for the network model to load
-    - &network_name 'inceptionv4'
+    - &network_name 'inceptionv4_v2'
+#    - &network_name 'network_v6'
+#    - &network_name 'simple_cnn_regression'
+#    - &network_name 'autoencoder_v5'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
-    - &data_path '../data/binned_data_20.pkl'
+    - &data_path '../data/binned_dat_all_proj_20_array.pkl'
   output-variables:
     # Directory to save network training states
     - &network_states_directory '../model_states/'
@@ -19,32 +22,32 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    network-epochs: 80
+    network-epochs: 60
     # Number of epochs to train the flow for
-    flow-epochs: 40
+    flow-epochs: 55
     # Number of inputs to process between network weight updates
-    batch-size: 80
+    batch-size: 60
     # File number to save the network progres
     network-save: 0
     # File number to save the flow progress
     flow-save: 0
     # File number to load the network state
-    network-load: 6
+    network-load: 35
     # File number to load the flow state
-    flow-load: 5
+    flow-load: 33
     # Learning rate for training the network
-    network-learning-rate: 0.0005
+    network-learning-rate: 2.0e-4
     # Learning rate for training the flow
-    flow-learning-rate: 0.00002
+    flow-learning-rate: 5.0e-6
     # Validation dataset fraction
 #    validation-fraction: 0.15
-    validation-fraction: 0.99
+    validation-fraction: 0.
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Free network during flow training, trained from start, changed head'
+    network-description: 'cross-section regression with flow training, 0.1 test'
     # Flow description
-    flow-description: 'Free network, changed head'
+    flow-description: 'cross-section regression, long training, 0.1 test'
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters

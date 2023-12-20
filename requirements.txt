@@ -3,9 +3,10 @@ numpy~=1.26.1
 PyQt5~=5.15.10
 PyYAML~=6.0.1
 zuko~=1.0.0
+astropy~=5.3.4
 
 --find-links https://download.pytorch.org/whl/cu118; sys_platform != "darwin"
 torch~=2.1.0
 torchvision~=0.16.0
 
-netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@8294bc4
+netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@19566b5
