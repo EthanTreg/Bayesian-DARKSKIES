@@ -5,7 +5,7 @@
     "convolutional": {
       "dropout": 0.05
     },
-    "description": "Variational"
+    "description": "Clustering"
   },
   "layers": [
     {
@@ -65,20 +65,27 @@
       "output": [-1]
     },
     {
-      "type": "linear",
-      "features": 2048
+      "type": "checkpoint"
     },
     {
       "type": "linear",
-      "factor": 2,
+      "features": 1024
+    },
+    {
+      "type": "checkpoint"
+    },
+    {
+      "type": "linear",
+      "features": 2,
       "dropout": 0
     },
     {
-      "type": "reshape",
-      "output": [-1, 1]
+      "type": "skip",
+      "layer": -1
     },
     {
-      "type": "sample"
+      "type": "linear",
+      "factor": 1
     }
   ]
 }

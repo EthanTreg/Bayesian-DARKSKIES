@@ -21,10 +21,14 @@ class DarkDataset(Dataset):
     ----------
     ids : ndarray
         IDs for each cluster in the dataset
+    classes : Tensor
+        Supervised class boundaries for one hot classification
     labels : Tensor
         Supervised labels for dark matter cross-section for each cluster
     images : Tensor
         Lensing and X-ray maps for each cluster
+    meta : Tensor
+        Metadata for each cluster in the dataset
     aug : Compose
         Image augmentation transform
     transform : tuple[float, float], default = None
@@ -37,15 +41,16 @@ class DarkDataset(Dataset):
     normalise()
         Normalises the labels
     """
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, sims: list[str]):
         """
         Parameters
         ----------
         data_path : string
             Path to the data file with the cluster dataset
+        sims : list[str]
+            Which simulations to load
         """
         idxs = []
-        sims = ['CDM+baryons', 'SIDM0.3+baryons', 'SIDM1+baryons', 'vdSIDM+baryons']
         self.idxs = None
         self.transform = None
 
@@ -58,10 +63,20 @@ class DarkDataset(Dataset):
             idxs.extend(np.argwhere(labels['sim'] == sim).flatten())
 
         # Remove stellar maps
-        self.images = np.moveaxis(images[idxs, ..., :2], 3, 1)
+        self.images = np.moveaxis(images[idxs], 3, 1)
 
         # Create labels
         self.labels = labels['label'][idxs]
+        self.labels[self.labels == 0.3] = -1
+        self.classes = torch.from_numpy(np.append(np.unique(self.labels), np.max(self.labels) * 2))
+
+        # Metadata
+        del labels['galaxy_catalogues']
+        del labels['sim']
+        self.meta = torch.from_numpy(np.array(
+            list(labels.values()),
+            dtype=float,
+        )).swapaxes(0, 1)[idxs]
 
         # Uses cluster IDs if provided, otherwise, number dataset in order
         if 'clusterID' in labels:
@@ -82,7 +97,7 @@ class DarkDataset(Dataset):
     def __len__(self) -> int:
         return self.images.shape[0]
 
-    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor, Tensor]:
         """
         Gets the training data for the given index
 
@@ -93,25 +108,34 @@ class DarkDataset(Dataset):
 
         Returns
         -------
-        tuple[ndarray, Tensor, Tensor]
-            Cluster ID, dark matter cross-section, and augmented image map
+        tuple[ndarray, Tensor, Tensor, ndarray]
+            Cluster ID, cluster label, augmented image map, and metadata
         """
-        return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
+        return self.ids[idx], self.labels[idx], self.aug(self.images[idx]), self.meta[idx]
 
-    def normalise(self, transform: tuple[float, float] = None):
+    def normalise(self, idxs: list[int] = None, transform: tuple[float, float] = None):
         """
         Normalises the labels
 
         Parameters
         ----------
+        idxs : list[integer]
+            Which indices should be normalised
         transform : tuple[float, float], default = None
             Pre-defined transformation
         """
-        self.labels, self.transform = data_normalisation(
-            self.labels,
-            mean=False,
-            transform=transform,
-        )
+        if idxs is None:
+            self.labels, self.transform = data_normalisation(
+                self.labels,
+                mean=False,
+                transform=transform,
+            )
+        else:
+            self.labels[idxs], self.transform = data_normalisation(
+                self.labels[idxs],
+                mean=False,
+                transform=transform,
+            )
 
 
 def _ndarray_normalisation(

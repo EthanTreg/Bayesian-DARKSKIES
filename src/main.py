@@ -9,11 +9,10 @@ import numpy as np
 import matplotlib as mpl
 from numpy import ndarray
 from zuko.flows import NSF
-from torch.utils.data import DataLoader
 from netloader.network import Network
+from torch.utils.data import DataLoader
 
-import src.utils.networks as nets
-from src.utils.training import training
+import src.networks as nets
 from src.utils.data import DarkDataset, loader_init
 from src.utils.utils import open_config, get_device
 from src.utils.plots import plot_performance, plot_distributions, plot_param_comparison
@@ -132,11 +131,14 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     states_dir = config['output']['network-states-directory']
 
     # Fetch dataset
-    dataset = DarkDataset(data_path)
+    dataset = DarkDataset(
+        data_path,
+        ['CDM+baryons', 'SIDM0.1+baryons', 'SIDM0.3+baryons', 'SIDM1+baryons'],
+    )
 
     # Initialise network
     network = Network(
-        list(dataset[0][-1].shape),
+        list(dataset[0][2].shape),
         list(dataset[0][1].shape),
         net_learning_rate,
         name,
@@ -169,7 +171,13 @@ def init(config: dict | str = '../config.yaml') -> tuple[
         description=flow_description,
     )
     flow.train_net = True
-    network = nets.Encoder(net_save, states_dir, network, description=net_description)
+    network = nets.ClusterEncoder(
+        net_save,
+        states_dir,
+        torch.unique(dataset.labels),
+        network,
+        description=net_description,
+    )
 
     # Load states from previous training
     network.load(net_load, states_dir)
@@ -181,12 +189,17 @@ def init(config: dict | str = '../config.yaml') -> tuple[
         idxs = network.idxs
 
     # Initialise datasets
-    dataset.normalise(transform=network.transform or flow.transform)
+    dataset.normalise(
+        idxs=torch.argwhere(dataset.labels != torch.min(dataset.labels)).flatten(),
+        transform=network.transform or flow.transform,
+    )
+    network.init_clusters(torch.unique(dataset.labels))
     loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=idxs)
     network.idxs = dataset.idxs
     flow.idxs = dataset.idxs
     network.transform = dataset.transform
     flow.transform = dataset.transform
+    # torch.autograd.set_detect_anomaly(True)
 
     return loaders, network, flow
 
@@ -224,7 +237,7 @@ def main(config_path: str = '../config.yaml'):
     loaders, network, flow = init(config)
 
     # Train network
-    training((network.network.epoch, net_epochs), loaders, network)
+    network.training(net_epochs, loaders)
     plot_performance(
         plots_dir,
         'Net_Losses',
@@ -243,7 +256,7 @@ def main(config_path: str = '../config.yaml'):
     )
 
     # Train flow
-    training((flow.flow.epoch, flow_epochs), loaders, flow)
+    flow.training(flow_epochs, loaders)
     plot_performance(
         plots_dir,
         'Flow_Losses',
