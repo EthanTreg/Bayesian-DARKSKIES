@@ -1,15 +1,17 @@
 """
 Base network class to base other networks off
 """
-import logging as log
 import os
+import logging as log
 from time import time
 
 import torch
-from netloader.network import Network
+import numpy as np
 from torch import Tensor
 from torch.utils.data import DataLoader
+from netloader.network import Network
 from zuko.flows import NSF
+from numpy import ndarray
 
 from src.utils.utils import save_name, get_device
 
@@ -41,12 +43,14 @@ class BaseNetwork:
         Updates network epoch
     training(epoch, training)
         Trains & validates the network for each epoch
-    save(network=None)
+    save()
         If save_num is provided, saves the network to the states directory
     scheduler()
         Updates the scheduler for the network
-    predict(high_dim)
-        Generates predictions for the given data
+    predict(loader, save, path) -> tuple[ndarray, ndarray, ndarray]
+        Generates predictions for a dataset and can save to a file
+    batch_predict(high_dim) -> Tensor
+        Generates predictions for the given data batch
     """
     def __init__(self, save_num: int, states_dir: str, network: Network, description: str = ''):
         """
@@ -71,13 +75,13 @@ class BaseNetwork:
         self.network.epoch = 0
 
         if save_num:
-            self.network.save_path = save_name(save_num, states_dir, self.network.name)
+            self.save_path = save_name(save_num, states_dir, self.network.name)
 
-            if os.path.exists(self.network.save_path):
-                log.warning(f'{self.network.save_path} already exists and will be overwritten '
+            if os.path.exists(self.save_path):
+                log.warning(f'{self.save_path} already exists and will be overwritten '
                             f'if training continues')
         else:
-            self.network.save_path = None
+            self.save_path = None
 
     def _train_val(self, loader: DataLoader) -> float:
         """
@@ -120,6 +124,20 @@ class BaseNetwork:
         Tensor
             Loss
         """
+
+    def _update(self, loss: Tensor):
+        """
+        Updates the network using backpropagation
+
+        Parameters
+        ----------
+        loss : Tensor
+            Loss to perform backpropagation from
+        """
+        if self.train_state:
+            self.network.optimiser.zero_grad()
+            loss.backward()
+            self.network.optimiser.step()
 
     def train(self, train: bool):
         """
@@ -172,6 +190,7 @@ class BaseNetwork:
             if 'network' in state:
                 self.idxs = state['indices']
                 self.transform = state['transform']
+                del state['network'].save_path
                 network.__dict__.update(state['network'].__dict__)
                 self.losses = network.losses
             else:
@@ -239,41 +258,95 @@ class BaseNetwork:
         """
         self.network.scheduler.step(self.losses[1][-1])
 
-    def save(self, network: NSF | Network = None):
+    def save(self):
         """
         Saves the network to the given path
+        """
+        if self.save_path:
+            torch.save(self, self.save_path)
+
+    def predict(
+            self,
+            loader: DataLoader,
+            path: str = None,
+            **kwargs) -> tuple[ndarray, ndarray, ndarray]:
+        """
+        Generates predictions for a dataset and can save to a file
 
         Parameters
         ----------
-        network : Network | NSF, default = self.network
-            Network to save
-        """
-        if network is None:
-            network = self.network
-            network.losses = self.losses
-
-        if network.save_path is None:
-            return
-
-        torch.save({
-            'description': self.description,
-            'transform': self.transform,
-            'indices': self.idxs,
-            'network': network,
-        }, network.save_path)
-
-    def predict(self, high_dim: Tensor) -> Tensor:
-        """
-        Generates predictions for the given data
-
-        Parameters
-        ----------
-        high_dim : Tensor
-            Data to generate predictions for
+        loader : DataLoader
+            Dataset to generate predictions for
+        path : string, default = None
+            Path to save the predictions if they should be saved
+        **kwargs
+            Optional keyword arguments to pass into batch_predict
 
         Returns
         -------
-        Tensor
-            Predictions for the given data
+        tuple[N ndarray, Nx... ndarray, Nx... ndarray]
+            Prediction IDs, target values and predicted values for dataset of size N
         """
-        return self.network(high_dim)
+        initial_time = time()
+        header = 'IDs,Targets,Predictions'
+        ids = []
+        targets = []
+        predictions = []
+        self.train(False)
+
+        # Generate predictions
+        with torch.no_grad():
+            for id_batch, target, images, *_ in loader:
+                ids.extend(id_batch)
+                targets.extend(target)
+                predictions.extend(self.batch_predict(images.to(self._device), **kwargs).cpu())
+
+        # Transform values
+        ids = np.array(ids)
+        targets = torch.stack(targets).numpy() * self.transform[1] + self.transform[0]
+        predictions = torch.stack(predictions).numpy() * self.transform[1] + self.transform[0]
+
+        if path:
+            output = np.hstack((ids[:, np.newaxis], targets, predictions))
+            print(f'Prediction time: {time() - initial_time:.3e} s')
+            np.savetxt(path, output, delimiter=',', fmt='%s', header=header)
+
+        return ids, targets, predictions
+
+    def batch_predict(self, data: Tensor) -> Tensor:
+        """
+        Generates predictions for the given data batch
+
+        Parameters
+        ----------
+        data : Nx... Tensor
+            N data to generate predictions for
+
+        Returns
+        -------
+        Nx... Tensor
+            N predictions for the given data
+        """
+        return self.network(data)
+
+
+def load_net(num: int, states_dir: str, net_name: str) -> BaseNetwork:
+    """
+    Loads a network from file
+
+    Parameters
+    ----------
+    num : integer
+        File number of the saved state
+    states_dir : string
+        Directory to the save files
+    net_name : string
+        Name of the network
+
+    Returns
+    -------
+    BaseNetwork
+        Saved network object
+    """
+    path = save_name(num, states_dir, net_name)
+    return torch.load(path, map_location=get_device()[1])

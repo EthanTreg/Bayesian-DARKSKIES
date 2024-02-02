@@ -5,6 +5,7 @@ import torch
 from torch import Tensor, nn
 from netloader.network import Network
 
+from src.utils.utils import label_change
 from src.networks.base import BaseNetwork
 
 
@@ -82,11 +83,7 @@ class Autoencoder(BaseNetwork):
                 (latent - bounds[1]) ** 2 * (latent > bounds[1]),
             )))
 
-        if self.train_state:
-            self.network.optimiser.zero_grad()
-            loss.backward()
-            self.network.optimiser.step()
-
+        self._update(loss)
         return loss.item()
 
 
@@ -126,13 +123,7 @@ class Decoder(BaseNetwork):
         """
         output = self.network(low_dim)
         loss = nn.MSELoss()(output, high_dim)
-
-        # Update network
-        if self.train_state:
-            self.network.optimiser.zero_grad()
-            loss.backward()
-            self.network.optimiser.step()
-
+        self._update(loss)
         return loss.item()
 
 
@@ -156,7 +147,7 @@ class Encoder(BaseNetwork):
 
     Methods
     -------
-    predict(high_dim) -> Tensor
+    batch_predict(high_dim) -> Tensor
         Generates predictions for the given data
     """
     def __init__(
@@ -165,6 +156,7 @@ class Encoder(BaseNetwork):
             states_dir: str,
             network: Network,
             description: str = '',
+            classes: Tensor = None,
             loss_function: nn.Module = nn.MSELoss()):
         """
         Parameters
@@ -177,10 +169,13 @@ class Encoder(BaseNetwork):
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
+        classes : Tensor, default = None
+            Unique classes if using class classification
         loss_function : Module, default = MSELoss
             Loss function to use
         """
         super().__init__(save_num, states_dir, network, description=description)
+        self._classes = classes.to(self._device)
         self._loss_function = loss_function
 
     def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
@@ -203,25 +198,19 @@ class Encoder(BaseNetwork):
 
         # Default shape is (N, L), but cross entropy expects (N)
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
-            low_dim = low_dim.squeeze()
+            low_dim = label_change(low_dim.squeeze(), self._classes)
 
         loss = self._loss_function(output, low_dim)
-
-        # Update network
-        if self.train_state:
-            self.network.optimiser.zero_grad()
-            loss.backward()
-            self.network.optimiser.step()
-
+        self._update(loss)
         return loss.item()
 
-    def predict(self, high_dim: Tensor) -> Tensor:
+    def batch_predict(self, data: Tensor) -> Tensor:
         """
         Generates predictions for the given data
 
         Parameters
         ----------
-        high_dim : Tensor
+        data : Tensor
             Data to generate predictions for
 
         Returns
@@ -229,9 +218,9 @@ class Encoder(BaseNetwork):
         Tensor
             Predictions for the given data
         """
-        output = super().predict(high_dim)
+        output = super().batch_predict(data)
 
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
-            output = torch.max(output, dim=-1, keepdim=True)[1]
+            output = torch.argmax(output, dim=-1, keepdim=True)
 
         return output

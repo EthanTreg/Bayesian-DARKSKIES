@@ -1,13 +1,16 @@
 """
 Classes that contain multiple types of networks
 """
-import logging as log
 import os
+import logging as log
 
 import torch
-from netloader.network import Network
+import numpy as np
 from torch import Tensor
+from torch.utils.data import DataLoader
+from netloader.network import Network
 from zuko.flows import NSF
+from numpy import ndarray
 
 from src.utils.utils import save_name
 from src.networks.base import BaseNetwork
@@ -45,17 +48,17 @@ class NormFlow(BaseNetwork):
         Loads the flow and network from a previously saved state, if load_num != 0
     epoch() -> integer
         Updates network and flow epoch if they are being trained
-    save(indices)
-        If save_num is provided, saves the network to the states directory
     scheduler()
         Updates the scheduler for the flow and/or network if they are being trained
-    predict(data)
-        Generates probability distributions for the given data
+    predict(loader, save, path, samples=[1e3]) -> tuple[ndarray, ndarray, ndarray]
+        Generates probability distributions for a dataset and can save to a file
+    batch_predict(data) -> Tensor
+        Generates probability distributions for the given data batch
     """
     def __init__(
             self,
+            save_num: int,
             states_dir: str,
-            save_num: tuple[int, int],
             flow: NSF,
             network: Network,
             net_layers: int = None,
@@ -63,10 +66,10 @@ class NormFlow(BaseNetwork):
         """
         Parameters
         ----------
+        save_num : integer
+            File number to save the flow
         states_dir : string
             Directory to save the network and flow
-        save_num : tuple[integer]
-            File numbers to save the flow and network
         flow : NSF
             Normalising flow to predict low-dimensional data distribution
         network : Network
@@ -76,7 +79,7 @@ class NormFlow(BaseNetwork):
         description : string, default = ''
             Description of the network training
         """
-        super().__init__(save_num[0], states_dir, network, description=description)
+        super().__init__(save_num, states_dir, network, description=description)
         self._net_layers = net_layers
         self.train_net = False
         self.train_flow = True
@@ -84,14 +87,14 @@ class NormFlow(BaseNetwork):
         self.network = network
         self.flow.epoch = 0
 
-        if save_num[1]:
-            self.flow.save_path = save_name(save_num[1], states_dir, self.flow.name)
+        if save_num:
+            self.save_path = save_name(save_num, states_dir, self.flow.name)
 
-            if os.path.exists(self.flow.save_path):
-                log.warning(f'{self.flow.save_path} already exists and will be overwritten '
+            if os.path.exists(self.save_path):
+                log.warning(f'{self.save_path} already exists and will be overwritten '
                             f'if training continues')
         else:
-            self.flow.save_path = None
+            self.save_path = None
 
     def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
         """
@@ -188,17 +191,6 @@ class NormFlow(BaseNetwork):
 
         return self.network.epoch
 
-    def save(self):
-        """
-        If save_num is provided, saves the network to the states directory
-        """
-        if self.train_net:
-            super().save(self.network)
-
-        if self.train_flow:
-            self.flow.losses = self.losses
-            super().save(self.flow)
-
     def scheduler(self):
         """
         Updates the scheduler for the flow and/or network if they are being trained
@@ -209,24 +201,81 @@ class NormFlow(BaseNetwork):
         if self.train_flow:
             self.flow.scheduler.step(self.losses[1][-1])
 
-    def predict(self, high_dim: Tensor) -> Tensor:
+    def predict(
+            self,
+            loader: DataLoader,
+            path: str = None,
+            samples: list[int] = None) -> tuple[ndarray, ndarray, ndarray]:
         """
-        Generates probability distributions for the data
+        Generates probability distributions for a dataset and can save to a file
 
         Parameters
         ----------
-        high_dim : Tensor
+        loader : DataLoader
+            Dataset to generate predictions for
+        path : string, default = None
+            Path to save the predictions if they should be saved
+        samples : list[integer], default = [1e3]
+            Number of samples to generate from the predicted distribution
+
+        Returns
+        -------
+        tuple[N ndarray, Nx1 ndarray, NxS ndarray]
+            Prediction IDs, target values and predicted distribution with samples S for dataset of
+            size N
+        """
+        bins = 100
+        header = 'IDs,Targets,Probabilities,Maxima,Medians,Distributions'
+        probs = []
+        maxima = []
+        ids, targets, distributions = super().predict(loader, samples=samples)
+
+        if not path:
+            return ids, targets, distributions
+
+        medians = np.median(distributions, axis=-1)
+
+        for target, distribution in zip(targets, distributions):
+            hist, bins = np.histogram(distribution, bins=bins, density=True)
+            prob = hist * (bins[1] - bins[0])
+            probs.append(prob[np.digitize(target, bins) - 1])
+            maxima.append(bins[np.argmax(hist)])
+
+        output = np.stack((
+            ids[:, np.newaxis],
+            targets,
+            np.expand_dims(probs, axis=1),
+            np.expand_dims(maxima, axis=1),
+            medians[:, np.newaxis],
+            distributions,
+        ))
+        np.savetxt(path, output, delimiter=',', fmt='%s', header=header)
+
+        return ids, targets, distributions
+
+    def batch_predict(self, data: Tensor, samples: list[int] = None) -> Tensor:
+        """
+        Generates probability distributions for the data batch
+
+        Parameters
+        ----------
+        data : Tensor
             Data to generate distributions for
+        samples : list[integer], default = [1e3]
+            Number of samples to generate
 
         Returns
         -------
         Tensor
             Probability distributions for the given data
         """
+        if samples is None:
+            samples = [1e3]
+
         # Temporarily truncate the network and generate samples
         self.network.layer_num = self._net_layers
         samples = torch.transpose(
-            self.flow(self.network(high_dim)).sample((1000,)).squeeze(-1),
+            self.flow(self.network(data)).sample([samples]).squeeze(-1),
             0,
             1,
         )

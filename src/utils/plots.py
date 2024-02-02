@@ -1,21 +1,26 @@
 """
 Creates several plots
 """
+from logging import warning
+
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from scipy import stats
 from numpy import ndarray
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from scipy.optimize import minimize
+from scipy.stats import gaussian_kde
 
-from src.utils.utils import subplot_grid
+from src.utils.utils import label_change, legend_marker, subplot_grid
 
 MAJOR = 24
 MINOR = 20
 SCATTER_NUM = 1000
 COLOURS = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
-FIG_SIZE = (16, 9)
+MARKERS = ['o', 'x', '^', 's', '*', '1', 'd', '+', 'p', 'D']
+RECTANGLE = (16, 9)
+SQUARE = (10, 10)
 
 
 def _init_plot(
@@ -66,14 +71,14 @@ def _init_plot(
     if isinstance(subplots, tuple):
         fig, axes = plt.subplots(
             *subplots,
-            figsize=FIG_SIZE,
+            figsize=RECTANGLE,
             constrained_layout=True,
             **plot_kwargs,
         )
     else:
         fig, axes = plt.subplot_mosaic(
             subplots,
-            figsize=FIG_SIZE,
+            figsize=RECTANGLE,
             constrained_layout=True,
             **plot_kwargs,
         )
@@ -129,13 +134,38 @@ def _legend(labels: list | ndarray, columns: int = 2) -> mpl.legend.Legend:
     return legend
 
 
+def _contour_sig(counts: float, contour: ndarray) -> float:
+    """
+    Finds the level that includes the required counts in a contour
+
+    Parameters
+    ----------
+    counts : float
+        Target amount for level to include
+    contour : ndarray
+        Contour to find the level that gives the target counts
+
+    Returns
+    -------
+    float
+        Level
+    """
+    return minimize(
+        lambda x: np.abs(np.sum(contour[contour > x]) / counts - 1),
+        0,
+        method='nelder-mead',
+    )['x'][0]
+
+
 def _plot_clusters_2d(
         colour: str,
         label: str,
         data: ndarray,
         axes: ndarray,
-        density: bool = False,
-        res: int = 200):
+        ranges: ndarray,
+        density: bool = True,
+        res: int = 200,
+        markers: ndarray = None):
     """
     Plots scattered data with contours and histograms to show data distribution for 2D data
 
@@ -149,7 +179,9 @@ def _plot_clusters_2d(
         N (x,y) data points to plot
     axes : 2x2 ndarray
         Axes to plot histograms and the scatter plot
-    density : bool, default = False
+    ranges : 2x2 ndarray
+        Min and max values for the x and y axes
+    density : bool, default = True
         If density contours should be plotted or confidence ellipses
     res : integer, default = 200
         Resolution of the density plot contours
@@ -165,8 +197,9 @@ def _plot_clusters_2d(
         alpha=hist_alpha,
         hist_kwargs={'color': colour},
     )
-    axes[1, 0].scatter(data[:, 0], data[:, 1], alpha=scat_alpha, color=colour, label=label)
     axes[1, 0].tick_params(labelsize=MINOR)
+    axes[1, 0].set_xlim(ranges[0])
+    axes[1, 0].set_ylim(ranges[1])
     _plot_histogram(
         data[:, 1],
         axes[1, 1],
@@ -175,9 +208,23 @@ def _plot_clusters_2d(
         hist_kwargs={'color': colour, 'orientation': 'horizontal'},
     )
 
+    if markers is not None:
+        for marker in np.unique(markers):
+            marker_idxs = marker == markers
+            axes[1, 0].scatter(
+                data[marker_idxs, 0],
+                data[marker_idxs, 1],
+                alpha=scat_alpha,
+                color=colour,
+                label=label,
+                marker=marker,
+            )
+    else:
+        axes[1, 0].scatter(data[:, 0], data[:, 1], alpha=scat_alpha, color=colour, label=label)
+
     if density:
         _plot_density(
-            *np.stack((np.min(data, axis=0), np.max(data, axis=0)), axis=1),
+            *ranges,
             [colour, colour.capitalize() + 's'],
             data,
             axes[1, 0],
@@ -188,13 +235,73 @@ def _plot_clusters_2d(
         _plot_ellipse(colour, data, axes[1, 0], stds=2)
 
 
+def _plot_clusters_3d(
+        colour: str,
+        label: str,
+        data: ndarray,
+        ranges: ndarray,
+        axis: Axes,
+        res: int = 200,
+        markers: ndarray = None):
+    """
+    Plots scattered data with contours and histograms to show data distribution for 2D data
+
+    Parameters
+    ----------
+    colour : string
+        Colour of the data
+    label : string
+        Label for the data
+    data : Nx3 ndarray
+        N (x,y,z) data points to plot
+    axis : Axes
+        Axis to plot 3D scatter plot with contours
+    ranges : 2x2 ndarray
+        Min and max values for the x and y axes
+    res : integer, default = 200
+        Resolution of the density plot contours
+    """
+    axes = ['x', 'y', 'z']
+    orders = [[0, 1, 2], [0, 2, 1], [2, 1, 0]]
+
+    if markers is not None:
+        for marker in np.unique(markers):
+            marker_idxs = marker == markers
+            axis.scatter(
+                *data[marker_idxs].swapaxes(0, 1),
+                alpha=0.4,
+                color=colour,
+                label=label,
+                marker=marker,
+            )
+    else:
+        axis.scatter(*data.swapaxes(0, 1), alpha=0.4, color=colour, label=label)
+
+    for order in orders:
+        _plot_density(
+            *ranges[order[:2]],
+            (colour, colour.capitalize() + 's'),
+            data[:, order[:2]],
+            axis,
+            res=res,
+            alpha=0.5,
+            order=order,
+            zdir=axes[order[-1]],
+            offset=ranges[order[-1], 0],
+        )
+
+
 def _plot_density(
         x_range: tuple[float, float],
         y_range: tuple[float, float],
-        colour: tuple[str, mpl.colors.Colormap],
+        colour: tuple[str, str | mpl.colors.Colormap],
         data: ndarray,
         axis: Axes,
-        res: int = 200):
+        res: int = 200,
+        alpha: float = 0.2,
+        order: list[int] = None,
+        confidences: list[float] = None,
+        **kwargs):
     """
     Plots a density contour plot
 
@@ -204,7 +311,7 @@ def _plot_density(
         Min and max x values
     y_range : tuple[float, float]
         Min and max y values
-    colour : tuple[string, Colormap]
+    colour : tuple[string, string | Colormap]
         Colour of the contour lines and colour map for the density contours
     data : Nx2 ndarray
         N (x,y) data points to generate density contour for
@@ -212,14 +319,33 @@ def _plot_density(
         Axis to add density contour
     res : integer, default = 200
         Resolution of the contours
+    alpha : float, default = 0.2
+        Alpha value for the contour
+    confidences : list[float], default = [0.68]
+        List of confidence values to plot contours for, starting with the lowest confidence
+
+    **kwargs
+        Optional kwargs to pass to contour plots
     """
     grid = np.mgrid[x_range[0]:x_range[1]:res * 1j, y_range[0]:y_range[1]:res * 1j]
-    kernel = stats.gaussian_kde(data.swapaxes(0, 1))
+    kernel = gaussian_kde(data.swapaxes(0, 1))
     contour = np.reshape(kernel(grid.reshape(2, -1)).T, (res, res))
-    levels = np.linspace(0, np.max(contour), 4)[1:]
+    total = np.sum(contour)
+    levels = [np.max(contour)]
 
-    axis.contourf(*grid, contour, levels, alpha=0.2, cmap=colour[1])
-    axis.contour(*grid, contour, levels, colors=colour[0])
+    if confidences is None:
+        confidences = [0.68]
+
+    for confidence in confidences:
+        levels.insert(0, _contour_sig(total * confidence, contour))
+
+    contour = np.concatenate((grid, contour[np.newaxis]), axis=0)
+
+    if order is not None:
+        contour = contour[order]
+
+    axis.contourf(*contour, levels, alpha=alpha, cmap=colour[1], **kwargs)
+    axis.contour(*contour, levels, colors=colour[0], **kwargs)
 
 
 def _plot_ellipse(colour: str, data: ndarray, axis: Axes, stds: int = 1):
@@ -399,30 +525,43 @@ def plot_distributions(
 
 
 def plot_clusters(
+        plots_dir: str,
         classes: ndarray,
         data: ndarray,
-        density: bool = False,
+        density: bool = True,
         res: int = 200,
-        labels: list[str] = None):
+        labels: list[str] = None,
+        predictions: ndarray = None):
     """
     Plots clusters either as a 2D scatter plot or 1D histogram
 
     Parameters
     ----------
+    plots_dir : string
+        Directory to save plots
     classes : N ndarray
         Data classes for N data points
     data : NxD ndarray
         N cluster data points of dimension D = {1,2}
-    density : bool, default = False
+    density : bool, default = True
         If density contours should be plotted or confidence ellipses
     res : integer, default = 200
         Resolution of the density plot contours
     labels : list[string], default = None
         Class labels
+    predictions : N ndarray, default = None
+        Class predicted labels
     """
+    pad = 0.05
+    markers = None
+    ranges = np.stack((
+        np.min(data - np.abs(pad * data), axis=0),
+        np.max(data + np.abs(pad * data), axis=0),
+    ), axis=1)
+
     if data.shape[1] == 1:
-        plt.figure(figsize=FIG_SIZE, constrained_layout=True)
-    else:
+        plt.figure(figsize=RECTANGLE, constrained_layout=True)
+    elif data.shape[1] == 2:
         _, axes = _init_plot(
             (2, 2),
             legend=labels is not None,
@@ -436,29 +575,92 @@ def plot_clusters(
         axes[0, 1].remove()
         axes[0, 0].tick_params(bottom=False)
         axes[1, 1].tick_params(left=False)
+        axis = axes[1, 0]
+    elif data.shape[1] == 3:
+        axis = plt.figure(figsize=SQUARE, constrained_layout=True).add_subplot(projection='3d')
+        axis.set_xlim(ranges[0])
+        axis.set_ylim(ranges[1])
+        axis.set_zlim(ranges[2])
+    else:
+        warning(f'Dimensions of size {data.shape[1]} not supported for plotting')
+        return
 
     if labels is None:
         labels = [None] * np.unique(classes).size
+
+    if predictions is not None:
+        legend_labels = legend_marker(COLOURS, labels, MARKERS)
+    else:
+        legend_labels = legend_marker(COLOURS, labels)
 
     # Plot each cluster class
     for class_, colour, label in zip(np.unique(classes), COLOURS, labels):
         label_idxs = classes == class_
         class_data = data[label_idxs]
 
-        # If data is 1D
+        if predictions is not None:
+            markers = np.array([MARKERS[0]] * len(class_data))
+
+            for class_j, marker in zip(np.unique(classes), MARKERS):
+                markers[predictions[label_idxs] == class_j] = marker
+
+        # Plot data depending on number of dimensions
         if data.shape[1] == 1:
             _plot_histogram(
                 class_data,
                 plt.gca(),
                 alpha=0.4,
                 labels=[label],
-                hist_kwargs={'range': (np.min(data), np.max(data))},
+                hist_kwargs={'range': (np.min(data), np.max(data)), 'color': colour},
             )
-        else:
-            _plot_clusters_2d(colour, label, class_data, axes, density=density, res=res)
+        elif data.shape[1] == 2:
+            _plot_clusters_2d(colour, label, class_data, axes, ranges, density=density, res=res)
+        elif data.shape[1] == 3:
+            _plot_clusters_3d(colour, label, class_data, ranges, axis, res=res, markers=markers)
 
     if data.shape[1] > 1 and labels[0] is not None:
-        _legend(axes[1, 0].get_legend_handles_labels(), columns=len(labels))
+        _legend(legend_labels, columns=len(labels))
+
+    plt.savefig(f'{plots_dir}Clusters.png')
+
+
+def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predictions: ndarray):
+    """
+    Plots the confusion matrix between targets and predictions
+
+    Parameters
+    ----------
+    plots_dir : string
+        Directory to save plots
+    labels : list[string]
+        Labels for each class
+    targets : N ndarray
+        Target values
+    predictions : N ndarray
+        Predicted values
+    """
+    classes = np.unique(targets)
+    matrix = np.zeros((len(classes), len(classes)))
+    plt.figure(figsize=SQUARE, constrained_layout=True)
+
+    # Generate confusion matrix
+    for matrix_row, class_ in zip(matrix, classes):
+        idxs = targets == class_
+        class_predicts, counts = np.unique(predictions[idxs], return_counts=True)
+        class_predicts = label_change(class_predicts, classes)
+        matrix_row[class_predicts] = counts / np.count_nonzero(idxs) * 100
+
+    plt.imshow(matrix, cmap='Blues')
+    plt.xticks(np.arange(len(labels)), labels, fontsize=MINOR)
+    plt.yticks(np.arange(len(labels)), labels, rotation=90, va='center', fontsize=MINOR)
+    plt.xlabel('Predictions', fontsize=MAJOR)
+    plt.ylabel('Targets', fontsize=MAJOR)
+
+    for (i, j), value in zip(np.ndindex(matrix.shape), matrix.flatten()):
+        colour = 'w' if value > 50 else 'k'
+        plt.text(j, i, f'{value:.1f}', ha='center', va='center', color=colour, fontsize=MINOR)
+
+    plt.savefig(f'{plots_dir}Confusion_Matrix.png')
 
 
 def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
@@ -475,7 +677,7 @@ def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
         Y-axis data
     """
     value_range = [np.min(x_data), np.max(x_data)]
-    plt.figure(figsize=FIG_SIZE, constrained_layout=True)
+    plt.figure(figsize=RECTANGLE, constrained_layout=True)
     axis = plt.gca()
 
     axis.scatter(x_data, y_data, alpha=0.2)
@@ -579,7 +781,7 @@ def plot_performance(
     train : list, default = None
         Training performance
     """
-    plt.figure(figsize=FIG_SIZE, constrained_layout=True)
+    plt.figure(figsize=RECTANGLE, constrained_layout=True)
 
     if train is not None:
         plt.plot(train, label='Training')

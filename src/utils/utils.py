@@ -7,6 +7,8 @@ from argparse import ArgumentParser
 import yaml
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+from torch import Tensor
 from numpy import ndarray
 
 
@@ -44,6 +46,86 @@ def get_device() -> tuple[dict, torch.device]:
     kwargs = {'num_workers': 1, 'pin_memory': True} if device == 'cuda' else {}
 
     return kwargs, device
+
+
+def label_change(
+        data: ndarray | Tensor,
+        in_label: ndarray | Tensor,
+        one_hot: bool = False,
+        out_label: ndarray | Tensor = None) -> ndarray | Tensor:
+    """
+    Converts an array or tensor of class values to an array or tensor of class indices
+
+    Parameters
+    ----------
+    data : N ndarray | Tensor
+        Classes of size N
+    in_label : C ndarray | Tensor
+        Unique class values of size C found in data
+    one_hot : boolean, default = False
+        If the returned tensor should be 1D array of class indices or 2D one hot tensor if out_label
+        is None or is an integer
+    out_label : C ndarray | Tensor, default = None
+        Unique class values of size C to transform data into, if None, then values will be indexes
+
+    Returns
+    -------
+    N | NxC ndarray | Tensor
+        ndarray or Tensor of class indices, or if one_hot is True, one hot tensor
+    """
+    if isinstance(data, Tensor):
+        module = torch
+    elif isinstance(data, ndarray):
+        module = np
+    else:
+        raise TypeError(f'Data type {type(data)} not supported')
+
+    if out_label is None:
+        out_label = module.arange(len(in_label))
+
+    if isinstance(data, Tensor):
+        out_label = out_label.to(get_device()[1])
+
+    out_data = out_label[module.searchsorted(in_label, data)]
+
+    if one_hot:
+        data_one_hot = module.zeros((len(data), len(in_label)))
+        data_one_hot[module.arange(len(data)), out_data] = 1
+        out_data = data_one_hot
+
+    if isinstance(data, Tensor):
+        out_data = out_data.to(get_device()[1])
+
+    return out_data
+
+
+def legend_marker(colours: list[str], labels: list[str], markers: list[str] = None) -> ndarray:
+    """
+    Creates markers for a legend
+
+    Parameters
+    ----------
+    colours : list[string]
+        Colours for the legend
+    labels : list[string]
+        Labels for the legend
+    markers : list[string], default = None
+        Markers for the legend
+
+    Returns
+    -------
+    ndarray
+        Legend labels
+    """
+    legend_labels = []
+
+    if markers is None:
+        markers = [None] * len(colours)
+
+    for colour, label, marker in zip(colours, labels, markers):
+        legend_labels.append([plt.gca().scatter([], [], color=colour, marker=marker), label])
+
+    return np.array(legend_labels).swapaxes(0, 1)
 
 
 def name_sort(
@@ -94,6 +176,43 @@ def name_sort(
     names = [names[i] for i in sort_idx]
 
     return names, data
+
+
+def open_config(key: str, config_path: str, parser: ArgumentParser = None) -> tuple[str, dict]:
+    """
+    Opens the configuration file from either the provided path or through command line argument
+
+    Parameters
+    ----------
+    key : string
+        Key of the configuration file
+    config_path : string
+        Default path to the configuration file
+    parser : ArgumentParser, default = None
+        Parser if arguments other than config path are required
+
+    Returns
+    -------
+    tuple[string, dictionary]
+        Configuration path and configuration file dictionary
+    """
+    if not _interactive_check():
+        if not parser:
+            parser = ArgumentParser()
+
+        parser.add_argument(
+            '--config_path',
+            default=config_path,
+            help='Path to the configuration file',
+            required=False,
+        )
+        args = parser.parse_args()
+        config_path = args.config_path
+
+    with open(config_path, 'rb') as file:
+        config = yaml.safe_load(file)[key]
+
+    return config_path, config
 
 
 def save_name(num: int, states_dir: str, name: str) -> str:
@@ -160,40 +279,3 @@ def subplot_grid(num: int) -> np.ndarray:
         subplot_layout = subplot_layout.reshape(*grid)
 
     return subplot_layout
-
-
-def open_config(key: str, config_path: str, parser: ArgumentParser = None) -> tuple[str, dict]:
-    """
-    Opens the configuration file from either the provided path or through command line argument
-
-    Parameters
-    ----------
-    key : string
-        Key of the configuration file
-    config_path : string
-        Default path to the configuration file
-    parser : ArgumentParser, default = None
-        Parser if arguments other than config path are required
-
-    Returns
-    -------
-    tuple[string, dictionary]
-        Configuration path and configuration file dictionary
-    """
-    if not _interactive_check():
-        if not parser:
-            parser = ArgumentParser()
-
-        parser.add_argument(
-            '--config_path',
-            default=config_path,
-            help='Path to the configuration file',
-            required=False,
-        )
-        args = parser.parse_args()
-        config_path = args.config_path
-
-    with open(config_path, 'rb') as file:
-        config = yaml.safe_load(file)[key]
-
-    return config_path, config

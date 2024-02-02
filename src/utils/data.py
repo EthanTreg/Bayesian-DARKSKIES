@@ -64,25 +64,23 @@ class DarkDataset(Dataset):
 
         # Remove stellar maps
         self.images = np.moveaxis(images[idxs], 3, 1)
+        del images
 
-        # Create labels
+        # Create labels & IDs
         self.labels = labels['label'][idxs]
-        self.labels[self.labels == 0.3] = -1
-        self.classes = torch.from_numpy(np.append(np.unique(self.labels), np.max(self.labels) * 2))
+        self.labels[self.labels == 0] = 1e-2
+        self.labels = np.log10(self.labels)
+        self.classes = torch.from_numpy(np.unique(self.labels))
+        self.ids = labels['clusterID'][idxs]
 
         # Metadata
         del labels['galaxy_catalogues']
         del labels['sim']
+        del labels['clusterID']
         self.meta = torch.from_numpy(np.array(
             list(labels.values()),
             dtype=float,
         )).swapaxes(0, 1)[idxs]
-
-        # Uses cluster IDs if provided, otherwise, number dataset in order
-        if 'clusterID' in labels:
-            self.ids = labels['clusterID'][idxs]
-        else:
-            self.ids = np.arange(self.images.shape[0])
 
         self.labels = torch.from_numpy(self.labels).float()[:, None]
         self.images = torch.from_numpy(self.images).float()
