@@ -154,17 +154,27 @@
       "output": [-1]
     },
     {
+      "type": "checkpoint"
+    },
+    {
       "type": "linear",
       "features": 512,
       "dropout": 0.01
     },
     {
+      "type": "checkpoint"
+    },
+    {
       "type": "linear",
-      "features": 3,
+      "features": 7,
       "dropout": 0
     },
     {
       "type": "checkpoint"
+    },
+    {
+      "type": "linear",
+      "features": 64
     },
     {
       "type": "linear",

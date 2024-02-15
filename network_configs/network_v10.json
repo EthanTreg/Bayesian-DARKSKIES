@@ -1,0 +1,64 @@
+{
+  "net": {
+    "2d": 1,
+    "checkpoints": 1,
+    "convolutional": {
+      "dropout": 0.05
+    },
+    "description": "Clustering Further Reduced"
+  },
+  "layers": [
+    {
+      "type": "convolutional",
+      "filters": 8
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "convolutional",
+      "filters": 16
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "convolutional",
+      "filters": 32
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "convolutional",
+      "filters": 64
+    },
+    {
+      "type": "pool"
+    },
+    {
+      "type": "convolutional",
+      "filters": 128
+    },
+    {
+      "type": "reshape",
+      "output": [-1]
+    },
+    {
+      "type": "checkpoint"
+    },
+    {
+      "type": "linear",
+      "features": 5,
+      "dropout": 0
+    },
+    {
+      "type": "checkpoint"
+    },
+    {
+      "type": "linear",
+      "factor": 1,
+      "dropout": 0
+    }
+  ]
+}

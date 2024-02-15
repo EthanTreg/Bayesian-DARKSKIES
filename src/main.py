@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 import src.networks as nets
 from src.utils import plots
 from src.utils.data import DarkDataset, loader_init
-from src.utils.utils import get_device, open_config
+from src.utils.utils import get_device, open_config, save_name
 
 
 def init(config: dict | str = '../config.yaml') -> tuple[
@@ -58,12 +58,12 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     if load_num:
         network = nets.load_net(load_num, states_dir, name)
         network.description = description
-        network.save_path = save_num
+        network.save_path = save_name(save_num, states_dir, name)
     else:
         network = Network(
             list(dataset[0][2].shape),
             # list(dataset[0][1].shape),
-            [torch.unique(dataset.labels).size(0)],
+            [len(torch.unique(dataset.labels))],
             learning_rate,
             name,
             networks_dir,
@@ -80,6 +80,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
 
     # Initialise datasets
     dataset.normalise(transform=network.transform)
+    network._classes = torch.unique(dataset.labels).to(network._device)
     loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=network.idxs)
     network.idxs = dataset.idxs
     network.transform = dataset.transform
@@ -101,7 +102,6 @@ def main(config_path: str = '../config.yaml'):
     labels = config['training']['class-labels']
     states_dir = config['output']['network-states-directory']
     plots_dir = config['output']['plots-directory']
-    predictions_path = config['output']['predictions-path']
 
     # Create plots directory
     if not os.path.exists(plots_dir):
@@ -126,7 +126,7 @@ def main(config_path: str = '../config.yaml'):
         network.losses[1],
         train=network.losses[0],
     )
-    _, targets, predictions, _, latent = network.predict(loaders[1], path=predictions_path)
+    _, targets, predictions, _, latent = network.predict(loaders[1])
     plots.plot_clusters(plots_dir, targets, latent, labels=labels, predictions=predictions)
     plots.plot_confusion(plots_dir, labels, targets, predictions)
 

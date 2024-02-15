@@ -26,15 +26,15 @@ main:
     # Number of inputs to process between network weight updates
     batch-size: 60
     # File number to save the network progres
-    network-save: 0
+    network-save: 1000
     # File number to save the flow progress
     flow-save: 0
     # File number to load the network state
-    network-load: 2
+    network-load: 1000
     # File number to load the flow state
     flow-load: 0
     # Learning rate for training the network
-    network-learning-rate: 4.0e-4
+    network-learning-rate: 2.0e-4
     # Learning rate for training the flow
     flow-learning-rate: 5.0e-6
     # Validation dataset fraction
@@ -42,7 +42,7 @@ main:
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'cross-section compact clustering log'
+    network-description: 'Compact clustering after Optuna'
     # Flow description
     flow-description: 'cross-section clustering, 0.1 test'
     # Labels for the classes

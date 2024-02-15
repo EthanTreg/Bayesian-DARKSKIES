@@ -305,10 +305,10 @@ class BaseNetwork:
         ids = np.array(ids)
         targets = torch.stack(targets).numpy() * self.transform[1] + self.transform[0]
         predictions = torch.stack(predictions).numpy() * self.transform[1] + self.transform[0]
+        print(f'Prediction time: {time() - initial_time:.3e} s')
 
         if path:
             output = np.hstack((ids[:, np.newaxis], targets, predictions))
-            print(f'Prediction time: {time() - initial_time:.3e} s')
             np.savetxt(path, output, delimiter=',', fmt='%s', header=header)
 
         return ids, targets, predictions

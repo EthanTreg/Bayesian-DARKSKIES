@@ -1,16 +1,14 @@
 """
 Creates several plots
 """
-from logging import warning
-
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from numpy import ndarray
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from scipy.optimize import minimize
 from scipy.stats import gaussian_kde
+from scipy.optimize import minimize
 
 from src.utils.utils import label_change, legend_marker, subplot_grid
 
@@ -25,10 +23,9 @@ SQUARE = (10, 10)
 
 def _init_plot(
         subplots: str | tuple[int, int] | list | ndarray,
-        legend: bool = False,
         x_label: str = None,
         y_label: str = None,
-        plot_kwargs: dict = None) -> tuple[Figure, dict | ndarray]:
+        **kwargs) -> tuple[Figure, dict | ndarray]:
     """
     Initialises subplots using either mosaic or subplots
 
@@ -43,7 +40,7 @@ def _init_plot(
         X label for the plot
     y_label : string, default = None
         Y label for the plot
-    plot_kwargs : dict, default = None
+    **kwargs
         Optional arguments for the subplot or mosaic function
 
     Returns
@@ -51,58 +48,36 @@ def _init_plot(
     tuple[Figure, dictionary | ndarray]
         Figure and subplot axes
     """
-    text_offset = 0.04
-    bbox = [0, 0, 1, 1]
-
-    if not plot_kwargs:
-        plot_kwargs = {}
-
-    # BBox for optional layouts
-    if legend:
-        bbox[3] -= 2 * text_offset
-
-    if x_label:
-        bbox[1] += text_offset
-
-    if y_label:
-        bbox[0] += text_offset
-
     # Plots either subplot or mosaic
     if isinstance(subplots, tuple):
         fig, axes = plt.subplots(
             *subplots,
             figsize=RECTANGLE,
             constrained_layout=True,
-            **plot_kwargs,
+            **kwargs,
         )
     else:
         fig, axes = plt.subplot_mosaic(
             subplots,
             figsize=RECTANGLE,
-            constrained_layout=True,
-            **plot_kwargs,
+            layout='constrained',
+            **kwargs,
         )
-
-    fig.get_layout_engine().set(rect=bbox)
 
     if x_label:
-        plt.figtext(0.5, 0.02, x_label, ha='center', va='center', fontsize=MAJOR)
+        fig.supxlabel(x_label, fontsize=MAJOR)
 
     if y_label:
-        plt.figtext(
-            0.02,
-            0.5,
-            y_label,
-            ha='center',
-            va='center',
-            rotation='vertical',
-            fontsize=MAJOR,
-        )
+        fig.supylabel(y_label, fontsize=MAJOR)
 
     return fig, axes
 
 
-def _legend(labels: list | ndarray, columns: int = 2) -> mpl.legend.Legend:
+def _legend(
+        labels: list | ndarray,
+        fig: Figure,
+        columns: int = 2,
+        loc: str = 'outside upper center') -> mpl.legend.Legend:
     """
     Plots a legend across the top of the plot
 
@@ -110,24 +85,29 @@ def _legend(labels: list | ndarray, columns: int = 2) -> mpl.legend.Legend:
     ----------
     labels : list | ndarray
         Legend matplotlib handles and labels as an array to be unpacked into handles and labels
+    fig : Figure
+        Figure to add legend to
     columns : integer, default = 2
         Number of columns for the legend
+    loc : string, default = 'outside upper center'
+        Location to place the legend
 
     Returns
     -------
     Legend
         Legend object
     """
-    legend = plt.figlegend(
+    legend = fig.legend(
         *labels,
-        loc='lower center',
+        loc=loc,
         ncol=columns,
-        bbox_to_anchor=(0.5, 0.91),
         fontsize=MAJOR,
+        borderaxespad=0.2,
     )
-    legend.get_frame().set_alpha(None)
 
-    for handle in legend.legendHandles:
+    for handle in legend.legend_handles:
+        handle.set_alpha(1)
+
         if isinstance(handle, mpl.collections.PathCollection):
             handle.set_sizes([100])
 
@@ -483,7 +463,7 @@ def plot_distributions(
     data_twin : ndarray, default = None
         Twin distributions to plot, each row is a different distribution corresponding to data
     """
-    _, axes = _init_plot(subplot_grid(min(data.shape[0], num_plots)), legend=True)
+    fig, axes = _init_plot(subplot_grid(min(data.shape[0], num_plots)))
 
     if labels is None:
         labels = (None, None)
@@ -519,7 +499,7 @@ def plot_distributions(
         labels = axes[0].get_legend_handles_labels()
 
     if labels is not None:
-        _legend(labels)
+        _legend(labels, fig)
 
     plt.savefig(f'{plots_dir}{name}.png')
 
@@ -560,30 +540,28 @@ def plot_clusters(
     ), axis=1)
 
     if data.shape[1] == 1:
-        plt.figure(figsize=RECTANGLE, constrained_layout=True)
+        fig = plt.figure(figsize=RECTANGLE, constrained_layout=True)
     elif data.shape[1] == 2:
-        _, axes = _init_plot(
+        fig, axes = _init_plot(
             (2, 2),
-            legend=labels is not None,
-            plot_kwargs={
-                'sharex': 'col',
-                'sharey': 'row',
-                'width_ratios': [3, 1],
-                'height_ratios': [1, 3],
-            },
+            sharex='col',
+            sharey='row',
+            width_ratios=[3, 1],
+            height_ratios=[1, 3],
         )
         axes[0, 1].remove()
         axes[0, 0].tick_params(bottom=False)
         axes[1, 1].tick_params(left=False)
         axis = axes[1, 0]
     elif data.shape[1] == 3:
-        axis = plt.figure(figsize=SQUARE, constrained_layout=True).add_subplot(projection='3d')
+        fig = plt.figure(figsize=SQUARE, constrained_layout=True)
+        axis = fig.add_subplot(projection='3d')
         axis.set_xlim(ranges[0])
         axis.set_ylim(ranges[1])
         axis.set_zlim(ranges[2])
+        axis.invert_yaxis()
     else:
-        warning(f'Dimensions of size {data.shape[1]} not supported for plotting')
-        return
+        fig, axes = _init_plot((data.shape[1],) * 2, sharex='col')
 
     if labels is None:
         labels = [None] * np.unique(classes).size
@@ -614,12 +592,30 @@ def plot_clusters(
                 hist_kwargs={'range': (np.min(data), np.max(data)), 'color': colour},
             )
         elif data.shape[1] == 2:
-            _plot_clusters_2d(colour, label, class_data, axes, ranges, density=density, res=res)
+            _plot_clusters_2d(
+                colour,
+                label,
+                class_data,
+                axes,
+                ranges,
+                density=density,
+                res=res,
+                markers=markers,
+            )
         elif data.shape[1] == 3:
             _plot_clusters_3d(colour, label, class_data, ranges, axis, res=res, markers=markers)
+        else:
+            plot_param_pairs(
+                class_data,
+                axes=axes,
+                x_range=ranges[0],
+                y_range=ranges[1],
+                colour=(colour, colour.capitalize() + 's'),
+                res=res,
+            )
 
     if data.shape[1] > 1 and labels[0] is not None:
-        _legend(legend_labels, columns=len(labels))
+        _legend(legend_labels, fig, columns=len(labels))
 
     plt.savefig(f'{plots_dir}Clusters.png')
 
@@ -698,24 +694,24 @@ def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
     plt.savefig(f'{plots_dir}Parameter_Comparison.png', transparent=False)
 
 
-def plot_param_pairs(plots_dir: str, data: ndarray):
+def plot_param_pairs(data: ndarray, plots_dir: str = None, axes: ndarray = None, **kwargs):
     """
     Plots a pair plot to compare the distributions and comparisons between parameters
 
     Parameters
     ----------
-    plots_dir : string
+    data : NxL ndarray
+        Data to plot parameter pairs for N data points and L parameters
+    plots_dir : string, default = None
         Directory to save plots
-    data : ndarray
-        Data to plot parameter pairs for with dimensions NxL where N is the number of data points
-        and L is the number of parameters
+    axes : LxL ndarray, default = None
+        Axes to use for plotting L parameters
     """
     # Initialize pair plots
     data = np.swapaxes(data, 0, 1)
-    _, axes = _init_plot(
-        (data.shape[0],) * 2,
-        plot_kwargs={'sharex': 'col'},
-    )
+
+    if axes is None:
+        _, axes = _init_plot((data.shape[0],) * 2, sharex='col')
 
     # Loop through each subplot
     for i, (axes_row, y_data) in enumerate(zip(axes, data)):
@@ -750,10 +746,18 @@ def plot_param_pairs(plots_dir: str, data: ndarray):
                     s=4,
                     alpha=0.2,
                 )
-            else:
-                axis.remove()
 
-    plt.savefig(f'{plots_dir}Parameter_Pairs.png')
+                if kwargs:
+                    _plot_density(
+                        data=np.stack((x_data, y_data), axis=1),
+                        axis=axis,
+                        **kwargs,
+                    )
+            else:
+                axis.set_visible(False)
+
+    if plots_dir:
+        plt.savefig(f'{plots_dir}Parameter_Pairs.png')
 
 
 def plot_performance(

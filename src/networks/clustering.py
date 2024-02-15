@@ -286,7 +286,9 @@ class CompactClusterEncoder(BaseNetwork):
     train_state : boolean, default = True
         If network should be in the train or eval state
     cluster_loss : float, default = 1
-        Weighting of cluster loss relative to label classification loss
+        Weighting of the cluster loss
+    class_loss : float, default = 1
+        Weighting of the cross entropy loss
     description : string, default = ''
         Description of the network training
     transform : tuple[float, float], default = None
@@ -321,7 +323,8 @@ class CompactClusterEncoder(BaseNetwork):
         super().__init__(save_num, states_dir, network, description=description)
         self._steps = steps
         self._classes = classes.to(self._device)
-        self.cluster_loss = 1
+        self.cluster_loss = 2.2
+        self.class_loss = 0.2
 
     def _label_propagation_cluster_loss(self, latent: Tensor, one_hot: Tensor) -> Tensor:
         """
@@ -413,7 +416,7 @@ class CompactClusterEncoder(BaseNetwork):
 
         # Classification loss
         one_hot = label_change(low_dim[l_idxs], self._classes, one_hot=True).float()
-        loss = nn.CrossEntropyLoss()(output[l_idxs], one_hot)
+        loss = self.class_loss * nn.CrossEntropyLoss()(output[l_idxs], one_hot)
 
         # Cluster loss
         loss += self._label_propagation_cluster_loss(latent, one_hot)
@@ -461,23 +464,24 @@ class CompactClusterEncoder(BaseNetwork):
         # Transform values
         ids = np.array(ids)
         probs = torch.stack(probs).numpy()
-        targets = torch.stack(targets).numpy() * self.transform[1] + self.transform[0]
+        targets = torch.stack(targets).numpy().squeeze() * self.transform[1] + self.transform[0]
         latents = torch.stack(latents).numpy()
         predicts = torch.stack(predicts).numpy() * self.transform[1] + self.transform[0]
         header = f"IDs,Targets,Predictions,Probabilities{',' * probs.shape[1]}Latent"
+        print(f'Prediction time: {time() - initial_time:.3e} s\t'
+              f'Accuracy: {np.count_nonzero(targets == predicts) / len(targets):.1%}')
 
         if path:
             output = np.hstack((
                 ids[:, np.newaxis],
-                targets,
+                targets[:, np.newaxis],
                 predicts[:, np.newaxis],
                 probs,
                 latents,
             ))
-            print(f'Prediction time: {time() - initial_time:.3e} s')
             np.savetxt(path, output, delimiter=',', fmt='%s', header=header)
 
-        return ids, targets.squeeze(), predicts, probs, latents
+        return ids, targets, predicts, probs, latents
 
     def batch_predict(self, data: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
