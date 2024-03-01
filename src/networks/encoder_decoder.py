@@ -15,7 +15,7 @@ class Autoencoder(BaseNetwork):
 
     Attributes
     ----------
-    network : Network
+    net : Network
         Autoencoder network
     train_state : boolean, default = True
         If network should be in the train or eval state
@@ -34,7 +34,7 @@ class Autoencoder(BaseNetwork):
             self,
             save_num: int,
             states_dir: str,
-            network: Network,
+            net: Network,
             description: str = ''):
         """
         Parameters
@@ -43,12 +43,12 @@ class Autoencoder(BaseNetwork):
             File number to save the network
         states_dir : string
             Directory to save the network
-        network : Network
+        net : Network
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
         """
-        super().__init__(save_num, states_dir, network, description=description)
+        super().__init__(save_num, states_dir, net, description=description)
         self.latent_loss = 1e-2
         self.bound_loss = 1e-3
 
@@ -69,10 +69,10 @@ class Autoencoder(BaseNetwork):
             Loss from the autoencoder's predictions'
         """
         bounds = torch.tensor([0., 1.]).to(self._device)
-        output = self.network(high_dim)
-        latent = self.network.clone
+        output = self.net(high_dim)
+        latent = self.net.clone
 
-        loss = nn.MSELoss()(output, high_dim) + self.network.kl_loss
+        loss = nn.MSELoss()(output, high_dim) + self.net.kl_loss
 
         if self.latent_loss:
             loss += self.latent_loss * nn.MSELoss()(latent, low_dim)
@@ -94,7 +94,7 @@ class Decoder(BaseNetwork):
 
     Attributes
     ----------
-    network : Network
+    net : Network
         Neural network
     train_state : boolean, default = True
         If network should be in the train or eval state
@@ -121,7 +121,7 @@ class Decoder(BaseNetwork):
         float
             Loss from the network's predictions'
         """
-        output = self.network(low_dim)
+        output = self.net(low_dim)
         loss = nn.MSELoss()(output, high_dim)
         self._update(loss)
         return loss.item()
@@ -134,7 +134,7 @@ class Encoder(BaseNetwork):
 
     Attributes
     ----------
-    network : Network
+    net : Network
         Neural network
     train_state : boolean, default = True
         If network should be in the train or eval state
@@ -154,7 +154,7 @@ class Encoder(BaseNetwork):
             self,
             save_num: int,
             states_dir: str,
-            network: Network,
+            net: Network,
             description: str = '',
             classes: Tensor = None,
             loss_function: nn.Module = nn.MSELoss()):
@@ -165,7 +165,7 @@ class Encoder(BaseNetwork):
             File number to save the network
         states_dir : string
             Directory to save the network
-        network : Network
+        net : Network
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
@@ -174,7 +174,7 @@ class Encoder(BaseNetwork):
         loss_function : Module, default = MSELoss
             Loss function to use
         """
-        super().__init__(save_num, states_dir, network, description=description)
+        super().__init__(save_num, states_dir, net, description=description)
         self._classes = classes.to(self._device)
         self._loss_function = loss_function
 
@@ -194,7 +194,7 @@ class Encoder(BaseNetwork):
         float
             Loss from the network's predictions'
         """
-        output = self.network(high_dim)
+        output = self.net(high_dim)
 
         # Default shape is (N, L), but cross entropy expects (N)
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
@@ -204,7 +204,7 @@ class Encoder(BaseNetwork):
         self._update(loss)
         return loss.item()
 
-    def batch_predict(self, data: Tensor) -> Tensor:
+    def batch_predict(self, data: Tensor, **_) -> Tensor:
         """
         Generates predictions for the given data
 

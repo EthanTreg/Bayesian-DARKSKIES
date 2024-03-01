@@ -21,8 +21,6 @@ class DarkDataset(Dataset):
     ----------
     ids : ndarray
         IDs for each cluster in the dataset
-    classes : Tensor
-        Supervised class boundaries for one hot classification
     labels : Tensor
         Supervised labels for dark matter cross-section for each cluster
     images : Tensor
@@ -31,7 +29,7 @@ class DarkDataset(Dataset):
         Metadata for each cluster in the dataset
     aug : Compose
         Image augmentation transform
-    transform : tuple[float, float], default = None
+    transform : tuple[float, float], default = (0, 1)
         Label min and range for 0-1 normalisation
     idxs : ndarray, default = None
         Data indices for random training & validation datasets
@@ -50,17 +48,18 @@ class DarkDataset(Dataset):
         sims : list[str]
             Which simulations to load
         """
-        idxs = []
         self.idxs = None
-        self.transform = None
+        self.transform = (0, 1)
 
         # Load data from file
         with open(data_path, 'rb') as file:
             labels, images = pickle.load(file)
 
         # Get specified sim data
-        for sim in sims:
-            idxs.extend(np.argwhere(labels['sim'] == sim).flatten())
+        # vd_idxs = (labels['label'] > 0.7) & (labels['label'] < 0.85)
+        # labels['label'][vd_idxs] = np.mean(labels['label'][vd_idxs])
+        # idxs = np.in1d(labels['sim'], sims) | vd_idxs
+        idxs = np.in1d(labels['sim'], sims)
 
         # Remove stellar maps
         self.images = np.moveaxis(images[idxs], 3, 1)
@@ -70,7 +69,6 @@ class DarkDataset(Dataset):
         self.labels = labels['label'][idxs]
         self.labels[self.labels == 0] = 1e-2
         self.labels = np.log10(self.labels)
-        self.classes = torch.from_numpy(np.unique(self.labels))
         self.ids = labels['clusterID'][idxs]
 
         # Metadata
@@ -93,7 +91,7 @@ class DarkDataset(Dataset):
         ])
 
     def __len__(self) -> int:
-        return self.images.shape[0]
+        return len(self.ids)
 
     def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor, Tensor]:
         """
@@ -134,6 +132,77 @@ class DarkDataset(Dataset):
                 mean=False,
                 transform=transform,
             )
+
+
+class ClusterDataset(Dataset):
+    """
+    A dataset object containing a cluster latent space and dark matter cross-sections for PyTorch
+    training
+
+    Attributes
+    ----------
+    ids : ndarray
+        IDs for each cluster in the dataset
+    labels : Tensor
+        Supervised labels for dark matter cross-section for each cluster
+    latent : Tensor
+        Cluster latent space for each cluster
+    transform : tuple[float, float], default = (0, 1)
+        Label min and range for 0-1 normalisation
+    idxs : ndarray, default = None
+        Data indices for random training & validation datasets
+    """
+    def __init__(self, data_path: str, sigmas: list[str]):
+        """
+        Parameters
+        ----------
+        data_path : string
+            Path to the data file with the cluster latent space
+        sigmas : list[string]
+            Cross-sections to use from the dataset
+        """
+        self.transform = (0, 1)
+        bad_keys = []
+        self.idxs = None
+
+        with open(data_path, 'rb') as file:
+            data = pickle.load(file)
+
+        # Remove cross-sections not specified
+        for key in data.keys():
+            if key not in sigmas:
+                bad_keys.append(key)
+
+        for bad_key in bad_keys:
+            del data[bad_key]
+
+        data = np.concatenate(list(data.values()))
+
+        self.ids = data[:, 0].astype(int)
+        self.labels = torch.from_numpy(data[:, 1:2]).float()
+        self.latent = torch.from_numpy(data[:, -7:]).float()
+        self.idxs = np.append(
+            np.argwhere(self.labels.flatten() != torch.unique(self.labels)[2]).flatten(),
+            np.argwhere(self.labels.flatten() == torch.unique(self.labels)[2]).flatten(),
+        )
+
+    def __len__(self) -> int:
+        return len(self.ids)
+
+    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
+        """
+        Gets the training data for the given index
+
+        Parameters
+        idx : integer
+            Index of the target cluster
+
+        Returns
+        -------
+        tuple[ndarray, Tensor, Tensor]
+            Cluster ID, cluster label, cluster latent space
+        """
+        return self.ids[idx], self.labels[idx], self.latent[idx]
 
 
 def _ndarray_normalisation(

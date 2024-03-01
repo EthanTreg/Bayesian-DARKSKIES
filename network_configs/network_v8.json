@@ -3,7 +3,11 @@
     "2d": 1,
     "checkpoints": 1,
     "convolutional": {
-      "dropout": 0.05
+      "dropout": 0.05,
+      "dropout_no_val": 0
+    },
+    "linear": {
+      "dropout_no_val": 0
     },
     "description": "Clustering"
   },

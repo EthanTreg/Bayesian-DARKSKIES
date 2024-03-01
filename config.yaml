@@ -6,11 +6,12 @@ global-variables:
     # Path to the configuration files for the networks
     - &network_configs_directory '../network_configs/'
     # File name for the network model to load
-    - &network_name 'inceptionv4_v3'
-#    - &network_name 'network_v8'
+#    - &network_name 'inceptionv4_v3'
+    - &network_name 'network_v8'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
     - &data_path '../data/binned_dat_all_proj_20_array.pkl'
+#    - &data_path '../data/cluster_data.pkl'
   output-variables:
     # Directory to save network training states
     - &network_states_directory '../model_states/'
@@ -26,11 +27,11 @@ main:
     # Number of inputs to process between network weight updates
     batch-size: 60
     # File number to save the network progres
-    network-save: 1000
+    network-save: 1010
     # File number to save the flow progress
     flow-save: 0
     # File number to load the network state
-    network-load: 1000
+    network-load: 0
     # File number to load the flow state
     flow-load: 0
     # Learning rate for training the network
@@ -42,7 +43,7 @@ main:
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Compact clustering after Optuna'
+    network-description: 'Compact clustering with vd (0.7<σ<0.85)'
     # Flow description
     flow-description: 'cross-section clustering, 0.1 test'
     # Labels for the classes
@@ -50,6 +51,7 @@ main:
       - '$\sigma=0$'
       - '$\sigma=0.1$'
       - '$\sigma=0.3$'
+      - '$\sigma=0.8$'
       - '$\sigma=1$'
   # File location for different datasets
   data:

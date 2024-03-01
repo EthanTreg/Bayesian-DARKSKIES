@@ -19,12 +19,14 @@ COLOURS = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 
 MARKERS = ['o', 'x', '^', 's', '*', '1', 'd', '+', 'p', 'D']
 RECTANGLE = (16, 9)
 SQUARE = (10, 10)
+HI_RES = (32, 18)
 
 
 def _init_plot(
         subplots: str | tuple[int, int] | list | ndarray,
         x_label: str = None,
         y_label: str = None,
+        fig_size: tuple[int, int] = RECTANGLE,
         **kwargs) -> tuple[Figure, dict | ndarray]:
     """
     Initialises subplots using either mosaic or subplots
@@ -40,6 +42,8 @@ def _init_plot(
         X label for the plot
     y_label : string, default = None
         Y label for the plot
+    fig_size : tuple[integer, integer]
+        Size of the figure
     **kwargs
         Optional arguments for the subplot or mosaic function
 
@@ -52,14 +56,14 @@ def _init_plot(
     if isinstance(subplots, tuple):
         fig, axes = plt.subplots(
             *subplots,
-            figsize=RECTANGLE,
+            figsize=fig_size,
             constrained_layout=True,
             **kwargs,
         )
     else:
         fig, axes = plt.subplot_mosaic(
             subplots,
-            figsize=RECTANGLE,
+            figsize=fig_size,
             layout='constrained',
             **kwargs,
         )
@@ -429,6 +433,160 @@ def _plot_histogram(
     return None
 
 
+def plot_clusters(
+        plots_dir: str,
+        classes: ndarray,
+        data: ndarray,
+        density: bool = True,
+        res: int = 200,
+        labels: list[str] = None,
+        predictions: ndarray = None):
+    """
+    Plots clusters either as a 2D scatter plot or 1D histogram
+
+    Parameters
+    ----------
+    plots_dir : string
+        Directory to save plots
+    classes : N ndarray
+        Data classes for N data points
+    data : NxD ndarray
+        N cluster data points of dimension D = {1,2}
+    density : bool, default = True
+        If density contours should be plotted or confidence ellipses
+    res : integer, default = 200
+        Resolution of the density plot contours
+    labels : list[string], default = None
+        Class labels
+    predictions : N ndarray, default = None
+        Class predicted labels
+    """
+    pad = 0.05
+    markers = None
+    ranges = np.stack((
+        np.min(data - np.abs(pad * data), axis=0),
+        np.max(data + np.abs(pad * data), axis=0),
+    ), axis=1)
+
+    if data.shape[1] == 1:
+        fig = plt.figure(figsize=RECTANGLE, constrained_layout=True)
+    elif data.shape[1] == 2:
+        fig, axes = _init_plot(
+            (2, 2),
+            sharex='col',
+            sharey='row',
+            width_ratios=[3, 1],
+            height_ratios=[1, 3],
+        )
+        axes[0, 1].remove()
+        axes[0, 0].tick_params(bottom=False)
+        axes[1, 1].tick_params(left=False)
+        axis = axes[1, 0]
+    elif data.shape[1] == 3:
+        fig = plt.figure(figsize=SQUARE, constrained_layout=True)
+        axis = fig.add_subplot(projection='3d')
+        axis.set_xlim(ranges[0])
+        axis.set_ylim(ranges[1])
+        axis.set_zlim(ranges[2])
+        axis.invert_yaxis()
+    else:
+        fig, axes = _init_plot((data.shape[1],) * 2, fig_size=HI_RES, sharex='col')
+
+    if labels is None:
+        labels = [None] * np.unique(classes).size
+
+    if predictions is not None:
+        legend_labels = legend_marker(COLOURS, labels, MARKERS)
+    else:
+        legend_labels = legend_marker(COLOURS, labels)
+
+    # Plot each cluster class
+    for class_, colour, label in zip(np.unique(classes), COLOURS, labels):
+        label_idxs = classes == class_
+        class_data = data[label_idxs]
+
+        if predictions is not None:
+            markers = np.array([MARKERS[0]] * len(class_data))
+
+            for class_j, marker in zip(np.unique(classes), MARKERS):
+                markers[predictions[label_idxs] == class_j] = marker
+
+        # Plot data depending on number of dimensions
+        if data.shape[1] == 1:
+            _plot_histogram(
+                class_data,
+                plt.gca(),
+                alpha=0.4,
+                labels=[label],
+                hist_kwargs={'range': (np.min(data), np.max(data)), 'color': colour},
+            )
+        elif data.shape[1] == 2:
+            _plot_clusters_2d(
+                colour,
+                label,
+                class_data,
+                axes,
+                ranges,
+                density=density,
+                res=res,
+                markers=markers,
+            )
+        elif data.shape[1] == 3:
+            _plot_clusters_3d(colour, label, class_data, ranges, axis, res=res, markers=markers)
+        else:
+            plot_param_pairs(
+                class_data,
+                ranges=ranges,
+                axes=axes,
+                colour=(colour, colour.capitalize() + 's'),
+                res=res,
+            )
+
+    if data.shape[1] > 1 and labels[0] is not None:
+        _legend(legend_labels, fig, columns=len(labels))
+
+    plt.savefig(f'{plots_dir}Clusters.png')
+
+
+def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predictions: ndarray):
+    """
+    Plots the confusion matrix between targets and predictions
+
+    Parameters
+    ----------
+    plots_dir : string
+        Directory to save plots
+    labels : list[string]
+        Labels for each class
+    targets : N ndarray
+        Target values
+    predictions : N ndarray
+        Predicted values
+    """
+    classes = np.unique(targets)
+    matrix = np.zeros((len(classes), len(classes)))
+    plt.figure(figsize=SQUARE, constrained_layout=True)
+
+    # Generate confusion matrix
+    for matrix_row, class_ in zip(matrix, classes):
+        idxs = targets == class_
+        class_predicts, counts = np.unique(predictions[idxs], return_counts=True)
+        class_predicts = label_change(class_predicts, classes)
+        matrix_row[class_predicts] = counts / np.count_nonzero(idxs) * 100
+
+    plt.imshow(matrix, cmap='Blues')
+    plt.xticks(np.arange(len(labels)), labels, fontsize=MINOR)
+    plt.yticks(np.arange(len(labels)), labels, rotation=90, va='center', fontsize=MINOR)
+    plt.xlabel('Predictions', fontsize=MAJOR)
+    plt.ylabel('Targets', fontsize=MAJOR)
+
+    for (i, j), value in zip(np.ndindex(matrix.shape), matrix.flatten()):
+        colour = 'w' if value > 50 else 'k'
+        plt.text(j, i, f'{value:.1f}', ha='center', va='center', color=colour, fontsize=MINOR)
+
+    plt.savefig(f'{plots_dir}Confusion_Matrix.png')
+
+
 def plot_distributions(
         plots_dir: str,
         name: str,
@@ -498,165 +656,10 @@ def plot_distributions(
     elif labels:
         labels = axes[0].get_legend_handles_labels()
 
-    if labels is not None:
+    if labels[0] is not None:
         _legend(labels, fig)
 
     plt.savefig(f'{plots_dir}{name}.png')
-
-
-def plot_clusters(
-        plots_dir: str,
-        classes: ndarray,
-        data: ndarray,
-        density: bool = True,
-        res: int = 200,
-        labels: list[str] = None,
-        predictions: ndarray = None):
-    """
-    Plots clusters either as a 2D scatter plot or 1D histogram
-
-    Parameters
-    ----------
-    plots_dir : string
-        Directory to save plots
-    classes : N ndarray
-        Data classes for N data points
-    data : NxD ndarray
-        N cluster data points of dimension D = {1,2}
-    density : bool, default = True
-        If density contours should be plotted or confidence ellipses
-    res : integer, default = 200
-        Resolution of the density plot contours
-    labels : list[string], default = None
-        Class labels
-    predictions : N ndarray, default = None
-        Class predicted labels
-    """
-    pad = 0.05
-    markers = None
-    ranges = np.stack((
-        np.min(data - np.abs(pad * data), axis=0),
-        np.max(data + np.abs(pad * data), axis=0),
-    ), axis=1)
-
-    if data.shape[1] == 1:
-        fig = plt.figure(figsize=RECTANGLE, constrained_layout=True)
-    elif data.shape[1] == 2:
-        fig, axes = _init_plot(
-            (2, 2),
-            sharex='col',
-            sharey='row',
-            width_ratios=[3, 1],
-            height_ratios=[1, 3],
-        )
-        axes[0, 1].remove()
-        axes[0, 0].tick_params(bottom=False)
-        axes[1, 1].tick_params(left=False)
-        axis = axes[1, 0]
-    elif data.shape[1] == 3:
-        fig = plt.figure(figsize=SQUARE, constrained_layout=True)
-        axis = fig.add_subplot(projection='3d')
-        axis.set_xlim(ranges[0])
-        axis.set_ylim(ranges[1])
-        axis.set_zlim(ranges[2])
-        axis.invert_yaxis()
-    else:
-        fig, axes = _init_plot((data.shape[1],) * 2, sharex='col')
-
-    if labels is None:
-        labels = [None] * np.unique(classes).size
-
-    if predictions is not None:
-        legend_labels = legend_marker(COLOURS, labels, MARKERS)
-    else:
-        legend_labels = legend_marker(COLOURS, labels)
-
-    # Plot each cluster class
-    for class_, colour, label in zip(np.unique(classes), COLOURS, labels):
-        label_idxs = classes == class_
-        class_data = data[label_idxs]
-
-        if predictions is not None:
-            markers = np.array([MARKERS[0]] * len(class_data))
-
-            for class_j, marker in zip(np.unique(classes), MARKERS):
-                markers[predictions[label_idxs] == class_j] = marker
-
-        # Plot data depending on number of dimensions
-        if data.shape[1] == 1:
-            _plot_histogram(
-                class_data,
-                plt.gca(),
-                alpha=0.4,
-                labels=[label],
-                hist_kwargs={'range': (np.min(data), np.max(data)), 'color': colour},
-            )
-        elif data.shape[1] == 2:
-            _plot_clusters_2d(
-                colour,
-                label,
-                class_data,
-                axes,
-                ranges,
-                density=density,
-                res=res,
-                markers=markers,
-            )
-        elif data.shape[1] == 3:
-            _plot_clusters_3d(colour, label, class_data, ranges, axis, res=res, markers=markers)
-        else:
-            plot_param_pairs(
-                class_data,
-                axes=axes,
-                x_range=ranges[0],
-                y_range=ranges[1],
-                colour=(colour, colour.capitalize() + 's'),
-                res=res,
-            )
-
-    if data.shape[1] > 1 and labels[0] is not None:
-        _legend(legend_labels, fig, columns=len(labels))
-
-    plt.savefig(f'{plots_dir}Clusters.png')
-
-
-def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predictions: ndarray):
-    """
-    Plots the confusion matrix between targets and predictions
-
-    Parameters
-    ----------
-    plots_dir : string
-        Directory to save plots
-    labels : list[string]
-        Labels for each class
-    targets : N ndarray
-        Target values
-    predictions : N ndarray
-        Predicted values
-    """
-    classes = np.unique(targets)
-    matrix = np.zeros((len(classes), len(classes)))
-    plt.figure(figsize=SQUARE, constrained_layout=True)
-
-    # Generate confusion matrix
-    for matrix_row, class_ in zip(matrix, classes):
-        idxs = targets == class_
-        class_predicts, counts = np.unique(predictions[idxs], return_counts=True)
-        class_predicts = label_change(class_predicts, classes)
-        matrix_row[class_predicts] = counts / np.count_nonzero(idxs) * 100
-
-    plt.imshow(matrix, cmap='Blues')
-    plt.xticks(np.arange(len(labels)), labels, fontsize=MINOR)
-    plt.yticks(np.arange(len(labels)), labels, rotation=90, va='center', fontsize=MINOR)
-    plt.xlabel('Predictions', fontsize=MAJOR)
-    plt.ylabel('Targets', fontsize=MAJOR)
-
-    for (i, j), value in zip(np.ndindex(matrix.shape), matrix.flatten()):
-        colour = 'w' if value > 50 else 'k'
-        plt.text(j, i, f'{value:.1f}', ha='center', va='center', color=colour, fontsize=MINOR)
-
-    plt.savefig(f'{plots_dir}Confusion_Matrix.png')
 
 
 def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
@@ -694,7 +697,12 @@ def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
     plt.savefig(f'{plots_dir}Parameter_Comparison.png', transparent=False)
 
 
-def plot_param_pairs(data: ndarray, plots_dir: str = None, axes: ndarray = None, **kwargs):
+def plot_param_pairs(
+        data: ndarray,
+        plots_dir: str = None,
+        ranges: ndarray = None,
+        axes: ndarray = None,
+        **kwargs):
     """
     Plots a pair plot to compare the distributions and comparisons between parameters
 
@@ -704,18 +712,25 @@ def plot_param_pairs(data: ndarray, plots_dir: str = None, axes: ndarray = None,
         Data to plot parameter pairs for N data points and L parameters
     plots_dir : string, default = None
         Directory to save plots
+    ranges : Lx2 ndarray, default = None
+        Ranges for L parameters, required if using kwargs to plot densities
     axes : LxL ndarray, default = None
         Axes to use for plotting L parameters
+    **kwargs
+        Optional keyword arguments passed to _plot_density, if provided, densities will be plotted
     """
     # Initialize pair plots
     data = np.swapaxes(data, 0, 1)
+
+    if ranges is None:
+        ranges = [None] * data.shape[0]
 
     if axes is None:
         _, axes = _init_plot((data.shape[0],) * 2, sharex='col')
 
     # Loop through each subplot
-    for i, (axes_row, y_data) in enumerate(zip(axes, data)):
-        for j, (axis, x_data) in enumerate(zip(axes_row, data)):
+    for i, (axes_row, y_data, y_range) in enumerate(zip(axes, data, ranges)):
+        for j, (axis, x_data, x_range) in enumerate(zip(axes_row, data, ranges)):
             # Share y-axis for all scatter plots
             if i != j:
                 axis.sharey(axes_row[0])
@@ -735,6 +750,10 @@ def plot_param_pairs(data: ndarray, plots_dir: str = None, axes: ndarray = None,
             else:
                 axis.tick_params(labelbottom=False, bottom=False)
 
+            if x_range is not None and j < i:
+                axis.set_xlim(x_range)
+                axis.set_ylim(y_range)
+
             # Plot scatter plots & histograms
             if i == j:
                 _plot_histogram(x_data, axis)
@@ -749,6 +768,8 @@ def plot_param_pairs(data: ndarray, plots_dir: str = None, axes: ndarray = None,
 
                 if kwargs:
                     _plot_density(
+                        x_range,
+                        y_range,
                         data=np.stack((x_data, y_data), axis=1),
                         axis=axis,
                         **kwargs,

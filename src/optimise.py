@@ -107,16 +107,16 @@ def _objective(
     _update_net(latent_dim, latent_num, class_num, name, nets_dir, idxs)
 
     # Create network
-    net.network = Network(
+    net.net = Network(
         list(loaders[1].dataset.dataset[0][2].shape),
         [len(torch.unique(loaders[1].dataset.dataset.labels))],
         learning_rate,
         'optuna_config',
         '../data/',
     ).to(device)
-    net.network.epoch = 0
-    net.network.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        net.network.optimiser,
+    net.net.epoch = 0
+    net.net.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        net.net.optimiser,
         factor=0.5,
         mode='max',
         verbose=True,
@@ -127,7 +127,7 @@ def _objective(
     net.class_loss = class_loss
 
     # Train network
-    for i in range(net.network.epoch, epochs):
+    for i in range(net.net.epoch, epochs):
         initial_time = time()
 
         # Training
@@ -146,7 +146,7 @@ def _objective(
 
         # Prune poor performing networks
         if trial.should_prune() or (
-            net.network.epoch > 10 and net.losses[1][-1] < 1 / len(net._classes)
+                net.net.epoch > 10 and net.losses[1][-1] < 1 / len(net.classes)
         ):
             raise optuna.TrialPruned()
 
@@ -171,7 +171,7 @@ def main():
     torch.save(net, '../data/base_net.pth')
 
     # Find network checkpoints
-    for i, layer in enumerate(net.network.layers):
+    for i, layer in enumerate(net.net.layers):
         if layer['type'] == 'checkpoint':
             check_idxs.append(i)
 

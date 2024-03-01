@@ -56,35 +56,41 @@ def init(config: dict | str = '../config.yaml') -> tuple[
 
     # Initialise network
     if load_num:
-        network = nets.load_net(load_num, states_dir, name)
-        network.description = description
-        network.save_path = save_name(save_num, states_dir, name)
+        net = nets.load_net(load_num, states_dir, name)
+        net.description = description
+        net.save_path = save_name(save_num, states_dir, name)
     else:
-        network = Network(
+        net = Network(
             list(dataset[0][2].shape),
-            # list(dataset[0][1].shape),
             [len(torch.unique(dataset.labels))],
             learning_rate,
             name,
             networks_dir,
         ).to(device)
-        network = nets.CompactClusterEncoder(
+        net = nets.CompactClusterEncoder(
             save_num,
-            # network.shapes[-3][-1],
             states_dir,
             torch.unique(dataset.labels),
-            network,
-            # unknown=0,
+            net,
             description=description,
         )
+        # flow = nets.norm_flow(
+        #     dataset.latent.size(1),
+        #     4,
+        #     learning_rate,
+        #     [60, 60]
+        # )
+        # network = nets.NormFlow(save_num, states_dir, flow, description=description)
 
     # Initialise datasets
-    dataset.normalise(transform=network.transform)
-    network._classes = torch.unique(dataset.labels).to(network._device)
-    loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=network.idxs)
-    network.idxs = dataset.idxs
-    network.transform = dataset.transform
-    return loaders, network
+    dataset.normalise(transform=net.transform)
+    net.classes = torch.unique(dataset.labels).to(device)
+    # dataset.normalise(idxs=dataset.labels != torch.min(dataset.labels), transform=network.transform)
+    # network.idxs = dataset.idxs
+    loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=net.idxs)
+    net.idxs = dataset.idxs
+    net.transform = dataset.transform
+    return loaders, net
 
 
 def main(config_path: str = '../config.yaml'):
@@ -124,9 +130,13 @@ def main(config_path: str = '../config.yaml'):
         'Net_Losses',
         'Loss',
         network.losses[1],
+        log_y=False,
         train=network.losses[0],
     )
-    _, targets, predictions, _, latent = network.predict(loaders[1])
+    _, targets, predictions, _, latent = network.predict(
+        loaders[1],
+        path='../data/cluster_val_vd.csv',
+    )
     plots.plot_clusters(plots_dir, targets, latent, labels=labels, predictions=predictions)
     plots.plot_confusion(plots_dir, labels, targets, predictions)
 

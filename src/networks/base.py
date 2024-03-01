@@ -22,7 +22,7 @@ class BaseNetwork:
 
     Attributes
     ----------
-    network : Network
+    net : Network
         Neural network
     train_state : boolean, default = True
         If network should be in the train or eval state
@@ -47,12 +47,12 @@ class BaseNetwork:
         If save_num is provided, saves the network to the states directory
     scheduler()
         Updates the scheduler for the network
-    predict(loader, save, path) -> tuple[ndarray, ndarray, ndarray]
+    predict(loader, save, path=None, **kwargs) -> tuple[ndarray, ndarray, ndarray]
         Generates predictions for a dataset and can save to a file
     batch_predict(high_dim) -> Tensor
         Generates predictions for the given data batch
     """
-    def __init__(self, save_num: int, states_dir: str, network: Network, description: str = ''):
+    def __init__(self, save_num: int, states_dir: str, net: Network, description: str = ''):
         """
         Parameters
         ----------
@@ -60,7 +60,7 @@ class BaseNetwork:
             File number to save the network
         states_dir : string
             Directory to save the network
-        network : Network
+        net : Network
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
@@ -71,11 +71,11 @@ class BaseNetwork:
         self.transform = None
         self.losses = ([], [])
         self.idxs = None
-        self.network = network
-        self.network.epoch = 0
+        self.net = net
+        self.net.epoch = 0
 
         if save_num:
-            self.save_path = save_name(save_num, states_dir, self.network.name)
+            self.save_path = save_name(save_num, states_dir, self.net.name)
 
             if os.path.exists(self.save_path):
                 log.warning(f'{self.save_path} already exists and will be overwritten '
@@ -135,9 +135,9 @@ class BaseNetwork:
             Loss to perform backpropagation from
         """
         if self.train_state:
-            self.network.optimiser.zero_grad()
+            self.net.optimiser.zero_grad()
             loss.backward()
-            self.network.optimiser.step()
+            self.net.optimiser.step()
 
     def train(self, train: bool):
         """
@@ -151,9 +151,9 @@ class BaseNetwork:
         self.train_state = train
 
         if self.train_state:
-            self.network.train()
+            self.net.train()
         else:
-            self.network.eval()
+            self.net.eval()
 
     def load(self, load_num: int, states_dir: str, network: NSF | Network = None):
         """
@@ -179,7 +179,7 @@ class BaseNetwork:
             return
 
         if network is None:
-            network = self.network
+            network = self.net
 
         path = save_name(load_num, states_dir, network.name)
 
@@ -212,8 +212,8 @@ class BaseNetwork:
         integer
             Epoch number
         """
-        self.network.epoch += 1
-        return self.network.epoch
+        self.net.epoch += 1
+        return self.net.epoch
 
     def training(self, epoch: int, loaders: tuple[DataLoader, DataLoader]):
         """
@@ -227,7 +227,7 @@ class BaseNetwork:
             Train and validation dataloaders
         """
         # Train for each epoch
-        for _ in range(self.network.epoch, epoch):
+        for _ in range(self.net.epoch, epoch):
             t_initial = time()
 
             # Train network
@@ -243,7 +243,7 @@ class BaseNetwork:
             self.epoch()
             self.save()
 
-            print(f'Epoch [{self.network.epoch}/{epoch}]\t'
+            print(f'Epoch [{self.net.epoch}/{epoch}]\t'
                   f'Training loss: {self.losses[0][-1]:.3e}\t'
                   f'Validation loss: {self.losses[1][-1]:.3e}\t'
                   f'Time: {time() - t_initial:.1f}')
@@ -256,7 +256,7 @@ class BaseNetwork:
         """
         Updates the scheduler for the network
         """
-        self.network.scheduler.step(self.losses[1][-1])
+        self.net.scheduler.step(self.losses[1][-1])
 
     def save(self):
         """
@@ -278,7 +278,7 @@ class BaseNetwork:
         loader : DataLoader
             Dataset to generate predictions for
         path : string, default = None
-            Path to save the predictions if they should be saved
+            Path as CSV file to save the predictions if they should be saved
         **kwargs
             Optional keyword arguments to pass into batch_predict
 
@@ -313,7 +313,7 @@ class BaseNetwork:
 
         return ids, targets, predictions
 
-    def batch_predict(self, data: Tensor) -> Tensor:
+    def batch_predict(self, data: Tensor, **_) -> Tensor:
         """
         Generates predictions for the given data batch
 
@@ -327,7 +327,7 @@ class BaseNetwork:
         Nx... Tensor
             N predictions for the given data
         """
-        return self.network(data)
+        return self.net(data)
 
 
 def load_net(num: int, states_dir: str, net_name: str) -> BaseNetwork:
