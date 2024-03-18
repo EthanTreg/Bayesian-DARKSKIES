@@ -37,6 +37,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     device = get_device()[1]
 
     # Load config parameters
+    unknown = 3
     batch_size = config['training']['batch-size']
     save_num = config['training']['network-save']
     load_num = config['training']['network-load']
@@ -51,7 +52,15 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     # Fetch dataset
     dataset = DarkDataset(
         data_path,
-        ['CDM+baryons', 'SIDM0.1+baryons', 'SIDM0.3+baryons', 'SIDM1+baryons'],
+        [
+            'CDM+baryons',
+            'SIDM0.1+baryons',
+            'SIDM0.3+baryons',
+            'SIDM1+baryons',
+            'CDM_hi+baryons',
+            'CDM_low+baryons',
+            'vdSIDM+baryons',
+        ],
     )
 
     # Initialise network
@@ -72,21 +81,16 @@ def init(config: dict | str = '../config.yaml') -> tuple[
             states_dir,
             torch.unique(dataset.labels),
             net,
+            unknown=unknown,
             description=description,
         )
-        # flow = nets.norm_flow(
-        #     dataset.latent.size(1),
-        #     4,
-        #     learning_rate,
-        #     [60, 60]
-        # )
-        # network = nets.NormFlow(save_num, states_dir, flow, description=description)
 
     # Initialise datasets
-    dataset.normalise(transform=net.transform)
+    dataset.normalise(
+        idxs=torch.isin(dataset.labels, torch.unique(dataset.labels)[unknown:]),
+        transform=net.transform,
+    )
     net.classes = torch.unique(dataset.labels).to(device)
-    # dataset.normalise(idxs=dataset.labels != torch.min(dataset.labels), transform=network.transform)
-    # network.idxs = dataset.idxs
     loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=net.idxs)
     net.idxs = dataset.idxs
     net.transform = dataset.transform
@@ -135,7 +139,7 @@ def main(config_path: str = '../config.yaml'):
     )
     _, targets, predictions, _, latent = network.predict(
         loaders[1],
-        path='../data/cluster_val_vd.csv',
+        path='../data/cluster_val_hydro.csv',
     )
     plots.plot_clusters(plots_dir, targets, latent, labels=labels, predictions=predictions)
     plots.plot_confusion(plots_dir, labels, targets, predictions)

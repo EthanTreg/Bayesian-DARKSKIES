@@ -16,6 +16,7 @@ MAJOR = 24
 MINOR = 20
 SCATTER_NUM = 1000
 COLOURS = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+CMAPS = ['Blues', 'Oranges', 'Greens', 'Reds', 'Purples', 'YlOrBr', 'RdPu', 'Greys', 'YlGn', 'GnBu']
 MARKERS = ['o', 'x', '^', 's', '*', '1', 'd', '+', 'p', 'D']
 RECTANGLE = (16, 9)
 SQUARE = (10, 10)
@@ -149,6 +150,7 @@ def _plot_clusters_2d(
         ranges: ndarray,
         density: bool = True,
         res: int = 200,
+        cmap: str | mpl.colors.Colormap = None,
         markers: ndarray = None):
     """
     Plots scattered data with contours and histograms to show data distribution for 2D data
@@ -169,6 +171,10 @@ def _plot_clusters_2d(
         If density contours should be plotted or confidence ellipses
     res : integer, default = 200
         Resolution of the density plot contours
+    cmap : str | Colormap, default = None
+        Colour of the density contours, required if density is True
+    markers : ndarray, default = None
+        Markers for the data
     """
     bins = 50
     scat_alpha = 0.2
@@ -209,7 +215,7 @@ def _plot_clusters_2d(
     if density:
         _plot_density(
             *ranges,
-            [colour, colour.capitalize() + 's'],
+            [colour, cmap],
             data,
             axes[1, 0],
             res=res,
@@ -220,8 +226,9 @@ def _plot_clusters_2d(
 
 
 def _plot_clusters_3d(
-        colour: str,
         label: str,
+        colour: str,
+        cmap: mpl.colors.Colormap,
         data: ndarray,
         ranges: ndarray,
         axis: Axes,
@@ -232,10 +239,12 @@ def _plot_clusters_3d(
 
     Parameters
     ----------
-    colour : string
-        Colour of the data
     label : string
         Label for the data
+    colour : string
+        Colour of the data
+    cmap : string | Colormap
+        Colour of the density contours
     data : Nx3 ndarray
         N (x,y,z) data points to plot
     axis : Axes
@@ -264,7 +273,7 @@ def _plot_clusters_3d(
     for order in orders:
         _plot_density(
             *ranges[order[:2]],
-            (colour, colour.capitalize() + 's'),
+            (colour, cmap),
             data[:, order[:2]],
             axis,
             res=res,
@@ -438,6 +447,7 @@ def plot_clusters(
         classes: ndarray,
         data: ndarray,
         density: bool = True,
+        plot_3d: bool = False,
         res: int = 200,
         labels: list[str] = None,
         predictions: ndarray = None):
@@ -461,6 +471,7 @@ def plot_clusters(
     predictions : N ndarray, default = None
         Class predicted labels
     """
+    columns = len(labels)
     pad = 0.05
     markers = None
     ranges = np.stack((
@@ -482,7 +493,8 @@ def plot_clusters(
         axes[0, 0].tick_params(bottom=False)
         axes[1, 1].tick_params(left=False)
         axis = axes[1, 0]
-    elif data.shape[1] == 3:
+    elif data.shape[1] == 3 and plot_3d:
+        columns = 3
         fig = plt.figure(figsize=SQUARE, constrained_layout=True)
         axis = fig.add_subplot(projection='3d')
         axis.set_xlim(ranges[0])
@@ -501,7 +513,7 @@ def plot_clusters(
         legend_labels = legend_marker(COLOURS, labels)
 
     # Plot each cluster class
-    for class_, colour, label in zip(np.unique(classes), COLOURS, labels):
+    for class_, colour, cmap, label in zip(np.unique(classes), COLOURS, CMAPS, labels):
         label_idxs = classes == class_
         class_data = data[label_idxs]
 
@@ -529,21 +541,25 @@ def plot_clusters(
                 ranges,
                 density=density,
                 res=res,
+                cmap=cmap,
                 markers=markers,
             )
-        elif data.shape[1] == 3:
-            _plot_clusters_3d(colour, label, class_data, ranges, axis, res=res, markers=markers)
-        else:
-            plot_param_pairs(
+        elif data.shape[1] == 3 and plot_3d:
+            _plot_clusters_3d(
+                label,
+                colour,
+                cmap,
                 class_data,
-                ranges=ranges,
-                axes=axes,
-                colour=(colour, colour.capitalize() + 's'),
+                ranges,
+                axis,
                 res=res,
+                markers=markers,
             )
+        else:
+            plot_param_pairs(class_data, ranges=ranges, axes=axes, colour=(colour, cmap), res=res)
 
     if data.shape[1] > 1 and labels[0] is not None:
-        _legend(legend_labels, fig, columns=len(labels))
+        _legend(legend_labels, fig, columns=columns)
 
     plt.savefig(f'{plots_dir}Clusters.png')
 

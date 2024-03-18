@@ -10,7 +10,7 @@ global-variables:
     - &network_name 'network_v8'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
-    - &data_path '../data/binned_dat_all_proj_20_array.pkl'
+    - &data_path '../data/binned_data_20_hydro.pkl'
 #    - &data_path '../data/cluster_data.pkl'
   output-variables:
     # Directory to save network training states
@@ -22,36 +22,30 @@ main:
   training:
     # Number of epochs to train the network for
     network-epochs: 100
-    # Number of epochs to train the flow for
-    flow-epochs: 55
     # Number of inputs to process between network weight updates
     batch-size: 60
     # File number to save the network progres
-    network-save: 1010
-    # File number to save the flow progress
-    flow-save: 0
+    network-save: 1031
     # File number to load the network state
     network-load: 0
-    # File number to load the flow state
-    flow-load: 0
     # Learning rate for training the network
     network-learning-rate: 2.0e-4
-    # Learning rate for training the flow
-    flow-learning-rate: 5.0e-6
     # Validation dataset fraction
     validation-fraction: 0.15
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Compact clustering with vd (0.7<σ<0.85)'
-    # Flow description
-    flow-description: 'cross-section clustering, 0.1 test'
+    network-description: '1D physicalised, velocity dependent'
     # Labels for the classes
     class-labels:
-      - '$\sigma=0$'
+      - 'VD Low'
+      - 'VD Mid'
+      - 'VD High'
+      - 'CDM Low'
+      - 'CDM'
+      - 'CDM High'
       - '$\sigma=0.1$'
       - '$\sigma=0.3$'
-      - '$\sigma=0.8$'
       - '$\sigma=1$'
   # File location for different datasets
   data:

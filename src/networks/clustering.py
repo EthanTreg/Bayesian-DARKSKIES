@@ -142,20 +142,9 @@ class ClusterEncoder(BaseNetwork):
 
         # Calculate cluster centers for each class in the batch
         for batch_class in torch.unique(labels):
-            class_idx = self.classes == batch_class
-            label_idxs = labels == batch_class
-
-            if self._method == 'mean':
-                batch_center = torch.mean(latent[label_idxs], dim=0)
-            else:
-                batch_center = torch.median(latent[label_idxs], dim=0)[0]
-
             # Shift class cluster center towards class batch center
             if self.train_state and torch.any(self.center_step):
-                self._cluster_centers[class_idx] += (
-                        (batch_center - self._cluster_centers[class_idx]) *
-                        self.center_step[class_idx]
-                )
+                self._update_centers(batch_class, latent, labels)
 
             if self.compact_loss:
                 loss += self._cluster_loss(latent, labels, batch_class)
@@ -184,12 +173,6 @@ class ClusterEncoder(BaseNetwork):
         class_idx = self.classes == cluster_class
         class_vecs = latent[labels == cluster_class] - self._cluster_centers[class_idx]
 
-        # Calculate cluster compactness loss for the class batch
-        # loss += self.compact_loss * torch.mean((output[label_idxs] - batch_centers[-1]) ** 2)
-        # loss += self.compact_loss * torch.mean(
-        #     (output[label_idxs] - self._cluster_centers[cluster_idx]) ** 2
-        # )
-
         # Directions to other classes
         for class_center in self._cluster_centers[~class_idx]:
             directions.append(class_center - self._cluster_centers[class_idx])
@@ -214,12 +197,8 @@ class ClusterEncoder(BaseNetwork):
         known_classes = self.classes[self._unknown:]
 
         if len(known_classes) > 1 and self.distance_loss:
-            targets = self.scale * torch.cdist(known_classes[:, None], known_classes[:, None])
-            distances = torch.cdist(
-                self._cluster_centers[self._unknown:],
-                self._cluster_centers[self._unknown:],
-            )
-            return self.distance_loss * nn.MSELoss()(distances, targets)
+            centers = self.scale * self._cluster_centers[self._unknown:, 0]
+            return self.distance_loss * nn.MSELoss()(centers, known_classes)
 
         return torch.tensor(0., device=self._device)
 
@@ -273,6 +252,32 @@ class ClusterEncoder(BaseNetwork):
         self._cluster_centers = self._cluster_centers.detach()
 
         return loss.item()
+
+    def _update_centers(self, batch_class: Tensor, latent: Tensor, labels: Tensor):
+        """
+        Shifts the cluster center for a class based on the batch and step size
+
+        Parameters
+        ----------
+        batch_class : (1) Tensor
+            Class value to shift the cluster center for
+        latent : (N,Z) Tensor
+            Cluster latent space for batch size N and latent size of Z
+        labels : (N) Tensor
+            Class label for each latent point in batch size N
+        """
+        class_idx = self.classes == batch_class
+        label_idxs = labels == batch_class
+
+        if self._method == 'mean':
+            batch_center = torch.mean(latent[label_idxs], dim=0)
+        else:
+            batch_center = torch.median(latent[label_idxs], dim=0)[0]
+
+        self._cluster_centers[class_idx] += (
+                (batch_center - self._cluster_centers[class_idx]) *
+                self.center_step[class_idx]
+        )
 
     def predict(
             self,
@@ -341,14 +346,14 @@ class ClusterEncoder(BaseNetwork):
 
         Parameters
         ----------
-        data : Nx... Tensor
+        data : (N,...) Tensor
             N data to generate predictions for
 
         Returns
         -------
-        tuple[N Tensor, NxC Tensor, NxD Tensor]
+        tuple[(N) Tensor, (N,C) Tensor, (N,Z) Tensor]
             N predictions, prediction probabilities for C classes and latent space points of
-            dimension D for the given data
+            dimension Z for the given data
         """
         probs = self.net(data)
         predicts = label_change(
@@ -365,14 +370,21 @@ class CompactClusterEncoder(ClusterEncoder):
 
     Attributes
     ----------
+    classes : (C) Tensor
+        Classes of size C for clustering
     net : Network
         Encoder network
     train_state : boolean, default = True
         If network should be in the train or eval state
     cluster_loss : float, default = 1
         Weighting of the cluster loss
+    distance_loss : float, default = 1
+        Loss weight for the distance between cluster centers for known classes
     class_loss : float, default = 1
         Weighting of the cross entropy loss
+    center_step : float, default = 1
+        How far the cluster center should move towards the batch cluster center, if 0, cluster
+        centers will be fixed
     description : string, default = ''
         Description of the network training
     transform : tuple[float, float], default = None
@@ -420,10 +432,10 @@ class CompactClusterEncoder(ClusterEncoder):
             description=description,
         )
         self._steps = steps
-        self.sim_loss = 0
+        self.sim_loss = 0  # Unused
+        self.compact_loss = 0  # Unused
         self.class_loss = 0.2
-        self.compact_loss = 0
-        self.distance_loss = 0
+        self.distance_loss = 1
         self.cluster_loss = 2.2
 
     def _label_propagation_cluster_loss(self, latent: Tensor, one_hot: Tensor) -> Tensor:
@@ -433,8 +445,8 @@ class CompactClusterEncoder(ClusterEncoder):
 
         Parameters
         ----------
-        latent : (N,D) Tensor
-            Latent space to cluster, ordered by data points with known labels first
+        latent : (N,Z) Tensor
+            Cluster latent space for batch size N and latent size of Z
         one_hot : (L,C) Tensor
             One hot labels for L known datapoints and C classes
 
@@ -483,16 +495,55 @@ class CompactClusterEncoder(ClusterEncoder):
 
         return self.cluster_loss * loss
 
+    def _cluster_centers_loss(self, latent: Tensor, labels: Tensor) -> Tensor:
+        """
+        Calculates the centers of each class in the batch along the first dimension and the distance
+        to the class value for known classes.
+
+        Parameters
+        ----------
+        latent : (N,Z) Tensor
+            Cluster latent space for batch size N and latent size of Z
+        labels : (N) Tensor
+            Class label for each latent point in batch size N
+
+        Returns
+        -------
+        Tensor
+            Loss for cluster centers in the batch
+        """
+        batch_centers = []
+        known_classes = self.classes[self._unknown:]
+        batch_classes = known_classes[torch.isin(known_classes, torch.unique(labels))]
+
+        if len(known_classes) == 0:
+            return torch.tensor(0.).to(self._device)
+
+        # Calculate cluster centers for each class in the batch
+        for batch_class in batch_classes:
+            label_idxs = labels == batch_class
+
+            if self._method == 'mean':
+                batch_centers.append(torch.mean(latent[label_idxs, 0]))
+            else:
+                batch_centers.append(torch.median(latent[label_idxs, 0]))
+
+        return self.distance_loss * nn.MSELoss()(
+            self.scale * torch.stack(batch_centers),
+            batch_classes,
+        )
+
     def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
         """
         Calculates the loss from the network's predictions and clusters
 
         Parameters
         ----------
-        high_dim : Tensor
-            Input high dimensional data
-        low_dim : Tensor
-            Labelled and unlabelled low dimensional data
+        high_dim : (N,...) Tensor
+            Input high dimensional data of batch size N and the remaining dimensions depend on the
+            network used
+        low_dim : (N,1) Tensor
+            Class label for each output in the batch of size N
 
         Returns
         -------
@@ -525,8 +576,7 @@ class CompactClusterEncoder(ClusterEncoder):
 
         # Distance loss
         if self.distance_loss:
-            self._cluster_centers_loss(latent[l_idxs], low_dim[l_idxs])
-            loss += self._distance_loss()
+            loss += self._cluster_centers_loss(latent[l_idxs], low_dim[l_idxs])
 
         self._update(loss)
 

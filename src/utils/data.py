@@ -50,38 +50,57 @@ class DarkDataset(Dataset):
         """
         self.idxs = None
         self.transform = (0, 1)
+        log_0 = 5e-2
 
         # Load data from file
         with open(data_path, 'rb') as file:
             labels, images = pickle.load(file)
 
         # Get specified sim data
-        # vd_idxs = (labels['label'] > 0.7) & (labels['label'] < 0.85)
-        # labels['label'][vd_idxs] = np.mean(labels['label'][vd_idxs])
-        # idxs = np.in1d(labels['sim'], sims) | vd_idxs
         idxs = np.in1d(labels['sim'], sims)
 
-        # Remove stellar maps
-        self.images = np.moveaxis(images[idxs], 3, 1)
+        # Remove stellar maps & create labels & IDs
+        self.images = np.moveaxis(images[idxs, ..., :2], 3, 1)
         del images
-
-        # Create labels & IDs
         self.labels = labels['label'][idxs]
-        self.labels[self.labels == 0] = 1e-2
-        self.labels = np.log10(self.labels)
         self.ids = labels['clusterID'][idxs]
+
+        # Transform labels
+        if 'CDM_low+baryons' in sims:
+            self.labels[np.in1d(labels['sim'], 'CDM_low+baryons')[idxs]] = 4.9e-2
+
+        if 'CDM_hi+baryons' in sims:
+            self.labels[np.in1d(labels['sim'], 'CDM_hi+baryons')[idxs]] = 5.1e-2
+
+        if 'vdSIDM+baryons' in sims:
+            vd_idxs = np.in1d(labels['sim'], 'vdSIDM+baryons')[idxs]
+
+            for idx, sigma in zip(
+                    np.array_split(np.argsort(self.labels[vd_idxs]), 3),
+                    [1e-6, 1e-5, 1e-4],
+            ):
+                self.labels[np.flatnonzero(vd_idxs)[idx]] = sigma
+
+        self.labels[self.labels == 0] = log_0
+        self.labels = np.log10(self.labels)
 
         # Metadata
         del labels['galaxy_catalogues']
         del labels['sim']
         del labels['clusterID']
+        del labels['label']
         self.meta = torch.from_numpy(np.array(
             list(labels.values()),
             dtype=float,
         )).swapaxes(0, 1)[idxs]
+        self.meta, self.meta_transform = data_normalisation(self.meta, axis=0)
 
         self.labels = torch.from_numpy(self.labels).float()[:, None]
         self.images = torch.from_numpy(self.images).float()
+        self.images = torch.cat((
+            self.images.reshape(len(self.images), -1),
+            self.meta.float(),
+        ), dim=1)
 
         # Image augmentations
         self.aug = v2.Compose([
@@ -107,16 +126,22 @@ class DarkDataset(Dataset):
         tuple[ndarray, Tensor, Tensor, ndarray]
             Cluster ID, cluster label, augmented image map, and metadata
         """
-        return self.ids[idx], self.labels[idx], self.aug(self.images[idx]), self.meta[idx]
+        image = self.images[idx, :-self.meta.size(-1)]
+        image = torch.cat((
+            self.aug(image.view(-1, 100, 100)).flatten(),
+            self.images[idx, -self.meta.size(-1):],
+        ))
+        return self.ids[idx], self.labels[idx], image, self.meta[idx]
 
-    def normalise(self, idxs: list[int] = None, transform: tuple[float, float] = None):
+    def normalise(self, idxs: list[int] | Tensor = None, transform: tuple[float, float] = None):
         """
         Normalises the labels
 
         Parameters
         ----------
-        idxs : list[integer]
-            Which indices should be normalised
+        idxs : list[integer] | (N) Tensor
+            Which indices should be normalised, where N is either the indices to keep, or equal to
+            the number of labels and is a boolean tensor
         transform : tuple[float, float], default = None
             Pre-defined transformation
         """
