@@ -50,7 +50,7 @@ class DarkDataset(Dataset):
         """
         self.idxs = None
         self.transform = (0, 1)
-        log_0 = 5e-2
+        log_0 = 4e-2
 
         # Load data from file
         with open(data_path, 'rb') as file:
@@ -63,14 +63,14 @@ class DarkDataset(Dataset):
         self.images = np.moveaxis(images[idxs, ..., :2], 3, 1)
         del images
         self.labels = labels['label'][idxs]
-        self.ids = labels['clusterID'][idxs]
+        self.ids = labels['clusterID'][idxs].astype(int)
 
         # Transform labels
         if 'CDM_low+baryons' in sims:
-            self.labels[np.in1d(labels['sim'], 'CDM_low+baryons')[idxs]] = 4.9e-2
+            self.labels[np.in1d(labels['sim'], 'CDM_low+baryons')[idxs]] = 0.99 * log_0
 
         if 'CDM_hi+baryons' in sims:
-            self.labels[np.in1d(labels['sim'], 'CDM_hi+baryons')[idxs]] = 5.1e-2
+            self.labels[np.in1d(labels['sim'], 'CDM_hi+baryons')[idxs]] = 1.01 * log_0
 
         if 'vdSIDM+baryons' in sims:
             vd_idxs = np.in1d(labels['sim'], 'vdSIDM+baryons')[idxs]
@@ -81,6 +81,21 @@ class DarkDataset(Dataset):
             ):
                 self.labels[np.flatnonzero(vd_idxs)[idx]] = sigma
 
+        if 'zooms' in sims:
+            with open('../data/zooms.pkl', 'rb') as file:
+                images = pickle.load(file)
+
+            self.images = np.concatenate((self.images, images[:, :2]), axis=0)
+            self.labels = np.concatenate(
+                (self.labels, np.ones(images.shape[0]) * 1e-3),
+                axis=0,
+            )
+            self.ids = np.concatenate(
+                (self.ids, np.ones(images.shape[0]) * np.max(self.ids) + 1),
+                axis=0,
+            )
+
+        # self.labels[self.labels == 0.1] = 1e-4
         self.labels[self.labels == 0] = log_0
         self.labels = np.log10(self.labels)
 
@@ -93,14 +108,14 @@ class DarkDataset(Dataset):
             list(labels.values()),
             dtype=float,
         )).swapaxes(0, 1)[idxs]
-        self.meta, self.meta_transform = data_normalisation(self.meta, axis=0)
+        # self.meta, self.meta_transform = data_normalisation(self.meta, axis=0)
 
         self.labels = torch.from_numpy(self.labels).float()[:, None]
         self.images = torch.from_numpy(self.images).float()
-        self.images = torch.cat((
-            self.images.reshape(len(self.images), -1),
-            self.meta.float(),
-        ), dim=1)
+        # self.images = torch.cat((
+        #     self.images.reshape(len(self.images), -1),
+        #     self.meta.float(),
+        # ), dim=1)
 
         # Image augmentations
         self.aug = v2.Compose([
@@ -112,7 +127,7 @@ class DarkDataset(Dataset):
     def __len__(self) -> int:
         return len(self.ids)
 
-    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
         """
         Gets the training data for the given index
 
@@ -124,14 +139,14 @@ class DarkDataset(Dataset):
         Returns
         -------
         tuple[ndarray, Tensor, Tensor, ndarray]
-            Cluster ID, cluster label, augmented image map, and metadata
+            Cluster ID, cluster label, and augmented image map
         """
-        image = self.images[idx, :-self.meta.size(-1)]
-        image = torch.cat((
-            self.aug(image.view(-1, 100, 100)).flatten(),
-            self.images[idx, -self.meta.size(-1):],
-        ))
-        return self.ids[idx], self.labels[idx], image, self.meta[idx]
+        # image = self.images[idx, :-self.meta.size(-1)]
+        # image = torch.cat((
+        #     self.aug(image.view(-1, 100, 100)).flatten(),
+        #     self.images[idx, -self.meta.size(-1):],
+        # ))
+        return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
 
     def normalise(self, idxs: list[int] | Tensor = None, transform: tuple[float, float] = None):
         """
@@ -228,6 +243,53 @@ class ClusterDataset(Dataset):
             Cluster ID, cluster label, cluster latent space
         """
         return self.ids[idx], self.labels[idx], self.latent[idx]
+
+
+class GaussianDataset(Dataset):
+    """
+    A dataset object containing Gaussian toy images and centers for PyTorch training
+
+    Attributes
+    ----------
+    ids : ndarray
+        IDs for each Gaussian image in the dataset
+    labels : Tensor
+        Supervised labels for Gaussian centers
+    images : Tensor
+        Gaussian images
+    transform : tuple[float, float], default = (0, 1)
+        Label min and range for 0-1 normalisation
+    idxs : ndarray, default = None
+        Data indices for random training & validation datasets
+    """
+    def __init__(self, data_path: str):
+        self.idxs = None
+        self.transform = (0, 1)
+
+        with open(data_path, 'rb') as file:
+            labels, images = pickle.load(file)
+
+        self.labels = labels
+        self.images = images
+
+        # self.labels[np.in1d(self.labels, 0.12)] = 1e-6
+        # self.labels[np.in1d(self.labels, 0.4)] = 1e-5
+        self.labels[np.in1d(self.labels, 0.75)] = 1e-4
+
+        bad_idxs = np.in1d(self.labels, [0.7, 0.4])
+        self.labels = np.delete(self.labels, bad_idxs, axis=0)
+        self.images = np.delete(self.images, bad_idxs, axis=0)
+
+        self.ids = np.arange(len(self.labels))
+        self.labels = np.log10(self.labels)
+        self.labels = torch.from_numpy(self.labels).float()[:, None]
+        self.images = torch.from_numpy(self.images).float()
+
+    def __len__(self) -> int:
+        return len(self.ids)
+
+    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor, Tensor]:
+        return self.ids[idx], self.labels[idx], self.images[idx]
 
 
 def _ndarray_normalisation(

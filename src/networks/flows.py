@@ -1,10 +1,6 @@
 """
 Classes that contain multiple types of networks
 """
-import os
-import pickle
-import logging as log
-
 import torch
 import numpy as np
 from torch import Tensor
@@ -14,7 +10,7 @@ from zuko.flows import NSF
 from numpy import ndarray
 
 from src.networks.base import BaseNetwork
-from src.utils.utils import get_device, save_name
+from src.utils.utils import get_device
 
 
 class NormFlow(BaseNetwork):
@@ -39,47 +35,75 @@ class NormFlow(BaseNetwork):
     batch_predict(data, samples[1e3]) -> Tensor
         Generates probability distributions for the data batch
     """
-    def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
-        loss = -self.net().log_prob(high_dim).mean()
-        self._update(loss)
-        return loss.item()
-
-    def batch_predict(
-            self,
-            data: Tensor,
-            path: str = None,
-            samples: list[int] = None,
-            **__) -> ndarray:
+    def _data_loader_translation(self, low_dim: Tensor, high_dim: Tensor) -> tuple[Tensor, Tensor]:
         """
-        Generates probability distributions for the data batch
+        Takes the low and high dimensional tensors from the data loader, and orders them as inputs
+        and targets for the network
 
         Parameters
         ----------
-        data : Tensor
-            Target distribution
-        path : string, default = None
-            Path as a pickle file to save the predictions if they should be saved
-        samples : list[integer], default = [1e3]
-            Number of samples to generate
+        low_dim : Tensor
+            Low dimensional tensor from the data loader
+        high_dim : Tensor
+            High dimensional tensor from the data loader
 
         Returns
         -------
-        ndarray
-            Probability distributions for the given data
+        tuple[Tensor, Tensor]
+            Input and output target tensors
         """
+        return low_dim, high_dim
+
+    def _loss(self, _: Tensor, target: Tensor) -> float:
+        """
+        Calculates the loss from the flow's predictions
+
+        Parameters
+        ----------
+        target : (N, ...) Tensor
+            Target high dimensional data of batch size N and the remaining dimensions depend on the
+            network used
+
+        Returns
+        -------
+        float
+            Loss from the network's predictions
+        """
+        loss = -self.net().log_prob(target).mean()
+        self._update(loss)
+        return loss.item()
+
+    def predict(
+            self,
+            path: str = None,
+            samples: list[int] = None,
+            header: list[str] = None,
+            **_) -> dict:
+        """
+
+        Parameters
+        ----------
+        path : string, default = None
+            Path as CSV file to save the predictions if they should be saved
+        samples : list[integer], default = [1e3]
+            Number of samples to generate
+        header : list[string], default = ['samples']
+            Header for the predicted data, only used by child classes
+
+        Returns
+        -------
+        dictionary
+            Predicted distribution
+        """
+        if header is None:
+            header = ['samples']
+
         if samples is None:
             samples = [int(1e3)]
 
-        # Generate samples
-        distribution = self.net().sample(samples).squeeze(-1).cpu().numpy()
-
-        if path:
-            data = {'target': data, 'prediction': distribution}
-
-            with open(path, 'wb') as file:
-                pickle.dump(data, file)
-
-        return distribution
+        data = {header[0]: self.net().sample(samples).moveaxis(0, -1).detach().cpu().numpy()}
+        self._save_predictions(path, data)
+        return data
 
 
 class NormFlowEncoder(BaseNetwork):
@@ -89,7 +113,7 @@ class NormFlowEncoder(BaseNetwork):
 
     Attributes
     ----------
-    flow : NSF
+    net : NSF
         Normalising flow to predict low-dimensional data distribution
     net : Network
         Network to condition the normalising flow from high-dimensional data
@@ -97,7 +121,7 @@ class NormFlowEncoder(BaseNetwork):
         If network should be in the train or eval state
     train_flow : boolean, default = True
         If normalising flow should be trained
-    train_net : boolean, default = False
+    train_encoder : boolean, default = False
         If network should be trained
     description : string, default = ''
         Description of the network training
@@ -125,8 +149,8 @@ class NormFlowEncoder(BaseNetwork):
             self,
             save_num: int,
             states_dir: str,
-            flow: NSF,
             net: Network,
+            encoder: Network,
             net_layers: int = None,
             description: str = ''):
         """
@@ -136,9 +160,9 @@ class NormFlowEncoder(BaseNetwork):
             File number to save the flow
         states_dir : string
             Directory to save the network and flow
-        flow : NSF
-            Normalising flow to predict low-dimensional data distribution
         net : Network
+            Normalising flow to predict low-dimensional data distribution
+        encoder : Network
             Network to condition the normalising flow from high-dimensional data
         net_layers : integer, default = None
             Number of layers in the network to use, if None use all layers
@@ -147,31 +171,23 @@ class NormFlowEncoder(BaseNetwork):
         """
         super().__init__(save_num, states_dir, net, description=description)
         self._net_layers = net_layers
-        self.train_net = False
+        self.train_encoder = False
         self.train_flow = True
-        self.flow = flow
-        self.net = net
-        self.flow.epoch = 0
+        self.encoder = encoder
+        self.encoder.epoch = 0
 
-        if save_num:
-            self.save_path = save_name(save_num, states_dir, self.flow.name)
-
-            if os.path.exists(self.save_path):
-                log.warning(f'{self.save_path} already exists and will be overwritten '
-                            f'if training continues')
-        else:
-            self.save_path = None
-
-    def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
+    def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
-        Calculates the loss from the network and flow's predictions'
+        Calculates the loss from the network and flow's predictions
 
         Parameters
         ----------
-        high_dim : Tensor
-            High dimensional data as input
-        low_dim : Tensor
-            Low dimensional data as the target
+        in_data : (N,...) Tensor
+            Input high dimensional data of batch size N and the remaining dimensions depend on the
+            network used
+        target : (N, ...) Tensor
+            Target low dimensional data of batch size N and the remaining dimensions depend on the
+            network used
 
         Returns
         -------
@@ -179,29 +195,28 @@ class NormFlowEncoder(BaseNetwork):
             Loss from the flow's predictions'
         """
         # Temporarily truncate the network
-        self.net.layer_num = self._net_layers
+        self.encoder.layer_num = self._net_layers
 
         # Normalising flow loss
-        output = self.net(high_dim)
-        loss = -self.flow(output).log_prob(low_dim).mean()
+        loss = -self.net(self.encoder(in_data)).log_prob(target).mean()
 
         if not self.train_state:
-            self.net.layer_num = None
+            self.encoder.layer_num = None
             return loss.item()
 
         # Update network
-        self.flow.optimiser.zero_grad()
         self.net.optimiser.zero_grad()
+        self.encoder.optimiser.zero_grad()
         loss.backward()
 
-        if self.train_net:
-            self.net.optimiser.step()
+        if self.train_encoder:
+            self.encoder.optimiser.step()
 
         if self.train_flow:
-            self.flow.optimiser.step()
+            self.net.optimiser.step()
 
         # Remove network truncation
-        self.net.layer_num = None
+        self.encoder.layer_num = None
 
         return loss.item()
 
@@ -217,9 +232,9 @@ class NormFlowEncoder(BaseNetwork):
         super().train(train)
 
         if self.train_state:
-            self.flow.train()
+            self.encoder.train()
         else:
-            self.flow.eval()
+            self.encoder.eval()
 
     def load(self, states_dir: str, load_num: tuple[int, int]):
         """
@@ -235,7 +250,7 @@ class NormFlowEncoder(BaseNetwork):
             File numbers of the network and flow saved state
         """
         super().load(load_num[0], states_dir)
-        super().load(load_num[1], states_dir, network=self.flow)
+        super().load(load_num[1], states_dir, network=self.encoder)
 
     def epoch(self) -> int:
         """
@@ -247,32 +262,34 @@ class NormFlowEncoder(BaseNetwork):
             Epoch number
         """
         if self.train_flow:
-            self.flow.epoch += 1
-
-        if self.train_net:
             self.net.epoch += 1
 
-        if self.train_flow:
-            return self.flow.epoch
+        if self.train_encoder:
+            self.encoder.epoch += 1
 
-        return self.net.epoch
+        if self.train_flow:
+            return self.net.epoch
+
+        return self.encoder.epoch
 
     def scheduler(self):
         """
         Updates the scheduler for the flow and/or network if they are being trained
         """
-        if self.train_net:
+        if self.train_flow:
             super().scheduler()
 
-        if self.train_flow:
-            self.flow.scheduler.step(self.losses[1][-1])
+        if self.train_encoder:
+            self.encoder.scheduler.step(self.losses[1][-1])
 
     def predict(
             self,
             loader: DataLoader,
+            bin_num: int = 100,
             path: str = None,
             samples: list[int] = None,
-            **_) -> tuple[ndarray, ndarray, ndarray]:
+            header: list[str] = None,
+            **_) -> dict:
         """
         Generates probability distributions for a dataset and can save to a file
 
@@ -280,77 +297,72 @@ class NormFlowEncoder(BaseNetwork):
         ----------
         loader : DataLoader
             Dataset to generate predictions for
+        bin_num : integer, default = 100
+            Number of bins for calculating the probability of the target and maximum of the
+            distribution, higher is more precise but requires more samples
         path : string, default = None
-            Path as a CSV file to save the predictions if they should be saved
+            Path as a pkl file to save the predictions if they should be saved
         samples : list[integer], default = [1e3]
             Number of samples to generate from the predicted distribution
+        header : list[string], default = ['ids', 'targets', 'probs', 'max', 'meds', 'distributions']
+            Header for the predicted data, only used by child classes
 
         Returns
         -------
-        tuple[N ndarray, Nx1 ndarray, NxS ndarray]
-            Prediction IDs, target values and predicted distribution with samples S for dataset of
-            size N
+        dictionary
+            Prediction IDs, target values, target probability, distribution maximum, distribution
+            median, and predicted distribution with samples S for dataset of size N
         """
-        bin_num = 100
-        header = 'IDs,Targets,Probabilities,Maxima,Medians,Distributions'
         probs = []
         maxima = []
-        ids, targets, distributions = super().predict(loader, samples=samples)
+        data = super().predict(loader, samples=samples)
 
-        if not path:
-            return ids, targets, distributions
+        if header is None:
+            header = ['ids', 'targets', 'probs', 'max', 'meds', 'distributions']
 
-        medians = np.median(distributions, axis=-1)
-
-        for target, distribution in zip(targets, distributions):
+        for target, distribution in zip(data['targets'], data['distributions']):
             hist, bins = np.histogram(distribution, bins=bin_num, density=True)
             prob = hist * (bins[1] - bins[0])
             bins[-1] += 1e-6
             probs.append(prob[np.clip(np.digitize(target, bins) - 1, 0, bin_num - 1)])
             maxima.append(bins[np.argmax(hist)])
 
-        output = np.hstack((
-            ids[:, np.newaxis],
-            targets,
-            np.array(probs),
-            np.expand_dims(maxima, axis=1),
-            medians[:, np.newaxis],
-            distributions,
-        ))
-        np.savetxt(path, output, delimiter=',', fmt='%s', header=header)
+        data[header[2]] = np.stack(probs)
+        data[header[3]] = np.stack(maxima)
+        data[header[4]] = np.median(data[-1], axis=-1)
+        self._save_predictions(path, data)
+        return data
 
-        return ids, targets, distributions
-
-    def batch_predict(self, data: Tensor, samples: list[int] = None, **_) -> Tensor:
+    def batch_predict(self, data: Tensor, samples: list[int] = None, **_) -> tuple[ndarray]:
         """
         Generates probability distributions for the data batch
 
         Parameters
         ----------
-        data : Tensor
+        data : (N,...) Tensor
             Data to generate distributions for
         samples : list[integer], default = [1e3]
             Number of samples to generate
 
         Returns
         -------
-        Tensor
-            Probability distributions for the given data
+        tuple[(N,S) ndarray]
+            S samples from N probability distributions for the given data
         """
         if samples is None:
             samples = [1e3]
 
         # Temporarily truncate the network and generate samples
-        self.net.layer_num = self._net_layers
+        self.encoder.layer_num = self._net_layers
         samples = torch.transpose(
-            self.flow(self.net(data)).sample([samples]).squeeze(-1),
+            self.net(self.encoder(data)).sample([samples]).squeeze(-1),
             0,
             1,
         )
 
         # Remove network truncation
-        self.net.layer_num = None
-        return samples
+        self.encoder.layer_num = None
+        return (samples.detach().cpu().numpy(),)
 
 
 def norm_flow(
@@ -390,8 +402,8 @@ def norm_flow(
         hidden_features=hidden_features,
     ).to(device)
 
-    flow.name = 'flow'
     flow._device = device
+    flow.name = 'flow'
     flow.optimiser = torch.optim.Adam(flow.parameters(), lr=learning_rate)
     flow.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         flow.optimiser,

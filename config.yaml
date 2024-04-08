@@ -7,7 +7,7 @@ global-variables:
     - &network_configs_directory '../network_configs/'
     # File name for the network model to load
 #    - &network_name 'inceptionv4_v3'
-    - &network_name 'network_v8'
+    - &network_name 'network_v13'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
     - &data_path '../data/binned_data_20_hydro.pkl'
@@ -25,9 +25,9 @@ main:
     # Number of inputs to process between network weight updates
     batch-size: 60
     # File number to save the network progres
-    network-save: 1031
+    network-save: 0
     # File number to load the network state
-    network-load: 0
+    network-load: 2
     # Learning rate for training the network
     network-learning-rate: 2.0e-4
     # Validation dataset fraction
@@ -35,18 +35,26 @@ main:
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: '1D physicalised, velocity dependent'
+    network-description: 'Zooms, No Stellar'
     # Labels for the classes
     class-labels:
-      - 'VD Low'
-      - 'VD Mid'
-      - 'VD High'
+#      - 'VD Low'
+#      - 'VD Mid'
+#      - 'VD High'
+      - 'Zooms'
       - 'CDM Low'
       - 'CDM'
       - 'CDM High'
       - '$\sigma=0.1$'
       - '$\sigma=0.3$'
       - '$\sigma=1$'
+#      - '0.12'
+#      - '0.75'
+#      - '0.05'
+#      - '0.1'
+#      - '0.3'
+#      - '0.6'
+#      - '1'
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters

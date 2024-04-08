@@ -2,6 +2,7 @@
 Classes for encoder, decoder, or autoencoder type architectures
 """
 import torch
+import numpy as np
 from torch import Tensor, nn
 from netloader.network import Network
 
@@ -52,16 +53,18 @@ class Autoencoder(BaseNetwork):
         self.latent_loss = 1e-2
         self.bound_loss = 1e-3
 
-    def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
+    def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
         Calculates the loss from the autoencoder's predictions
 
         Parameters
         ----------
-        high_dim : Tensor
-            High dimensional data as input
-        low_dim : Tensor
-            Low dimensional data as the latent target
+        in_data : (N,...) Tensor
+            Input high dimensional data of batch size N and the remaining dimensions depend on the
+            network used
+        target : (N,...) Tensor
+            Latent target low dimensional data of batch size N and the remaining dimensions depend
+            on the network used
 
         Returns
         -------
@@ -69,13 +72,13 @@ class Autoencoder(BaseNetwork):
             Loss from the autoencoder's predictions'
         """
         bounds = torch.tensor([0., 1.]).to(self._device)
-        output = self.net(high_dim)
+        output = self.net(in_data)
         latent = self.net.clone
 
-        loss = nn.MSELoss()(output, high_dim) + self.net.kl_loss
+        loss = nn.MSELoss()(output, in_data) + self.net.kl_loss
 
         if self.latent_loss:
-            loss += self.latent_loss * nn.MSELoss()(latent, low_dim)
+            loss += self.latent_loss * nn.MSELoss()(latent, target)
 
         if self.bound_loss:
             loss += self.bound_loss * torch.mean(torch.cat((
@@ -105,24 +108,45 @@ class Decoder(BaseNetwork):
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current network training and validation losses
     """
-    def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
+    def _data_loader_translation(self, low_dim: Tensor, high_dim: Tensor) -> tuple[Tensor, Tensor]:
+        """
+        Takes the low and high dimensional tensors from the data loader, and orders them as inputs
+        and targets for the network
+
+        Parameters
+        ----------
+        low_dim : Tensor
+            Low dimensional tensor from the data loader
+        high_dim : Tensor
+            High dimensional tensor from the data loader
+
+        Returns
+        -------
+        tuple[Tensor, Tensor]
+            Input and output target tensors
+        """
+        return low_dim, high_dim
+
+    def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
         Calculates the loss from the network's predictions'
 
         Parameters
         ----------
-        high_dim : Tensor
-            High dimensional data as the target
-        low_dim : Tensor
-            Low dimensional data as input
+        in_data : (N,...) Tensor
+            Input low dimensional data of batch size N and the remaining dimensions depend on the
+            network used
+        target : (N, ...) Tensor
+            Target high dimensional data of batch size N and the remaining dimensions depend on the
+            network used
 
         Returns
         -------
         float
-            Loss from the network's predictions'
+            Loss from the network's predictions
         """
-        output = self.net(low_dim)
-        loss = nn.MSELoss()(output, high_dim)
+        output = self.net(in_data)
+        loss = nn.MSELoss()(output, target)
         self._update(loss)
         return loss.item()
 
@@ -178,33 +202,35 @@ class Encoder(BaseNetwork):
         self._classes = classes.to(self._device)
         self._loss_function = loss_function
 
-    def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
+    def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
         Calculates the loss from the network's predictions'
 
         Parameters
         ----------
-        high_dim : Tensor
-            High dimensional data as input
-        low_dim : Tensor
-            Low dimensional data as the target
+        in_data : (N,...) Tensor
+            Input high dimensional data of batch size N and the remaining dimensions depend on the
+            network used
+        target : (N, ...) Tensor
+            Target low dimensional data of batch size N and the remaining dimensions depend on the
+            network used
 
         Returns
         -------
         float
             Loss from the network's predictions'
         """
-        output = self.net(high_dim)
+        output = self.net(in_data)
 
         # Default shape is (N, L), but cross entropy expects (N)
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
-            low_dim = label_change(low_dim.squeeze(), self._classes)
+            target = label_change(target.squeeze(), self._classes)
 
-        loss = self._loss_function(output, low_dim)
+        loss = self._loss_function(output, target)
         self._update(loss)
         return loss.item()
 
-    def batch_predict(self, data: Tensor, **_) -> Tensor:
+    def batch_predict(self, data: Tensor, **_) -> tuple[np.ndarray]:
         """
         Generates predictions for the given data
 
@@ -215,12 +241,12 @@ class Encoder(BaseNetwork):
 
         Returns
         -------
-        Tensor
-            Predictions for the given data
+        tuple[N ndarray]
+            N predictions for the given data
         """
         output = super().batch_predict(data)
 
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
-            output = torch.argmax(output, dim=-1, keepdim=True)
+            output = np.argmax(output, axis=-1)
 
-        return output
+        return (output.detach().cpu().numpy(),)

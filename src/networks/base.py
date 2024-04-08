@@ -2,11 +2,13 @@
 Base network class to base other networks off
 """
 import os
+import pickle
 import logging as log
 from time import time
 
 import torch
 import numpy as np
+import pandas as pd
 from torch import Tensor
 from torch.utils.data import DataLoader
 from netloader.network import Network
@@ -83,6 +85,25 @@ class BaseNetwork:
         else:
             self.save_path = None
 
+    def _data_loader_translation(self, low_dim: Tensor, high_dim: Tensor) -> tuple[Tensor, Tensor]:
+        """
+        Takes the low and high dimensional tensors from the data loader, and orders them as inputs
+        and targets for the network
+
+        Parameters
+        ----------
+        low_dim : Tensor
+            Low dimensional tensor from the data loader
+        high_dim : Tensor
+            High dimensional tensor from the data loader
+
+        Returns
+        -------
+        tuple[Tensor, Tensor]
+            Input and output target tensors
+        """
+        return high_dim, low_dim
+
     def _train_val(self, loader: DataLoader) -> float:
         """
         Trains the network for one epoch
@@ -100,28 +121,27 @@ class BaseNetwork:
         epoch_loss = 0
 
         with torch.set_grad_enabled(self.train_state):
-            for _, labels, images, *_ in loader:
-                labels = labels.to(self._device)
-                images = images.to(self._device)
-
-                epoch_loss += self._loss(images, labels)
+            for _, low_dim, high_dim, *_ in loader:
+                low_dim = low_dim.to(self._device)
+                high_dim = high_dim.to(self._device)
+                epoch_loss += self._loss(*self._data_loader_translation(low_dim, high_dim))
 
         return epoch_loss / len(loader)
 
-    def _loss(self, high_dim: Tensor, low_dim: Tensor) -> float:
+    def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
         Empty method for child classes to base their loss functions on
 
         Parameters
         ----------
-        high_dim : Tensor
-            High dimension data
-        low_dim : Tensor
-            Low dimension data
+        in_data : (N,...) Tensor
+            Input data of batch size N and the remaining dimensions depend on the network used
+        target : (N,...) Tensor
+            Target data of batch size N and the remaining dimensions depend on the network used
 
         Returns
         -------
-        Tensor
+        float
             Loss
         """
 
@@ -138,6 +158,46 @@ class BaseNetwork:
             self.net.optimiser.zero_grad()
             loss.backward()
             self.net.optimiser.step()
+
+    def _predict(self, loader: DataLoader, **kwargs) -> pd.DataFrame:
+        """
+        Generates predictions for the network
+
+        Parameters
+        ----------
+        loader : DataLoader
+            Data loader to generate predictions for
+
+        **kwargs
+            Optional keyword arguments to pass to batch_predict
+
+        Returns
+        -------
+        (N,Y) DataFrame
+            N predictions with Y columns for ids, targets, and network outputs, where each column
+            can be an array with different dimensions
+        """
+        initial_time = time()
+        data = []
+        self.train(False)
+
+        # Generate predictions
+        with torch.no_grad():
+            for ids, low_dim, high_dim, *_ in loader:
+                in_data, target = self._data_loader_translation(low_dim, high_dim)
+                data.append(pd.DataFrame([
+                    ids.numpy(),
+                    target.numpy(),
+                    *self.batch_predict(in_data.to(self._device), **kwargs),
+                ]))
+
+        print(f'Prediction time: {time() - initial_time:.3e} s')
+        return pd.concat(data, axis=1).transpose()
+
+    def _save_predictions(self, path: str, data: dict):
+        if path:
+            with open(path, 'wb') as file:
+                pickle.dump(data, file)
 
     def train(self, train: bool):
         """
@@ -263,13 +323,15 @@ class BaseNetwork:
         Saves the network to the given path
         """
         if self.save_path:
+            self.net.checkpoints = []
             torch.save(self, self.save_path)
 
     def predict(
             self,
             loader: DataLoader,
             path: str = None,
-            **kwargs) -> tuple[ndarray, ndarray, ndarray]:
+            header: list[str] = None,
+            **kwargs) -> dict:
         """
         Generates predictions for a dataset and can save to a file
 
@@ -279,55 +341,43 @@ class BaseNetwork:
             Dataset to generate predictions for
         path : string, default = None
             Path as CSV file to save the predictions if they should be saved
+        header : list[string], default = ['ids', 'targets', 'preds']
+            Header for the predicted data, only used by child classes
+
         **kwargs
             Optional keyword arguments to pass into batch_predict
 
         Returns
         -------
-        tuple[N ndarray, Nx... ndarray, Nx... ndarray]
+        dictionary
             Prediction IDs, target values and predicted values for dataset of size N
         """
-        initial_time = time()
-        header = 'IDs,Targets,Predictions'
-        ids = []
-        targets = []
-        predictions = []
-        self.train(False)
-
-        # Generate predictions
-        with torch.no_grad():
-            for id_batch, target, images, *_ in loader:
-                ids.extend(id_batch)
-                targets.extend(target)
-                predictions.extend(self.batch_predict(images.to(self._device), **kwargs).cpu())
+        if header is None:
+            header = ['ids', 'targets', 'preds']
 
         # Transform values
-        ids = np.array(ids)
-        targets = torch.stack(targets).numpy() * self.transform[1] + self.transform[0]
-        predictions = torch.stack(predictions).numpy() * self.transform[1] + self.transform[0]
-        print(f'Prediction time: {time() - initial_time:.3e} s')
+        data = self._predict(loader, **kwargs)
+        data.iloc[1:3] = data.iloc[1:3] * self.transform[1] + self.transform[0]
+        data.columns = header
+        data = {key: np.stack(array) for key, array in data.items()}
+        self._save_predictions(path, data)
+        return data
 
-        if path:
-            output = np.hstack((ids[:, np.newaxis], targets, predictions))
-            np.savetxt(path, output, delimiter=',', fmt='%s', header=header)
-
-        return ids, targets, predictions
-
-    def batch_predict(self, data: Tensor, **_) -> Tensor:
+    def batch_predict(self, data: Tensor, **_) -> tuple[ndarray]:
         """
         Generates predictions for the given data batch
 
         Parameters
         ----------
-        data : Nx... Tensor
+        data : (N,...) Tensor
             N data to generate predictions for
 
         Returns
         -------
-        Nx... Tensor
+        (N,...) tuple[ndarray]
             N predictions for the given data
         """
-        return self.net(data)
+        return (self.net(data).detach().cpu().numpy(),)
 
 
 def load_net(num: int, states_dir: str, net_name: str) -> BaseNetwork:

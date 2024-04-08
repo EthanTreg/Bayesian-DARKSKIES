@@ -7,10 +7,11 @@ import torch
 import matplotlib as mpl
 from netloader.network import Network
 from torch.utils.data import DataLoader
+from sklearn.decomposition import PCA
 
 import src.networks as nets
 from src.utils import plots
-from src.utils.data import DarkDataset, loader_init
+from src.utils.data import DarkDataset, GaussianDataset, loader_init
 from src.utils.utils import get_device, open_config, save_name
 
 
@@ -37,7 +38,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     device = get_device()[1]
 
     # Load config parameters
-    unknown = 3
+    unknown = 1
     batch_size = config['training']['batch-size']
     save_num = config['training']['network-save']
     load_num = config['training']['network-load']
@@ -59,9 +60,11 @@ def init(config: dict | str = '../config.yaml') -> tuple[
             'SIDM1+baryons',
             'CDM_hi+baryons',
             'CDM_low+baryons',
-            'vdSIDM+baryons',
+            'zooms'
+            # 'vdSIDM+baryons',
         ],
     )
+    # dataset = GaussianDataset('../data/gaussian_data.pkl')
 
     # Initialise network
     if load_num:
@@ -137,12 +140,25 @@ def main(config_path: str = '../config.yaml'):
         log_y=False,
         train=network.losses[0],
     )
-    _, targets, predictions, _, latent = network.predict(
+    data = network.predict(
         loaders[1],
         path='../data/cluster_val_hydro.csv',
     )
-    plots.plot_clusters(plots_dir, targets, latent, labels=labels, predictions=predictions)
-    plots.plot_confusion(plots_dir, labels, targets, predictions)
+    plots.plot_clusters(
+        f'{plots_dir}PCA',
+        data['targets'],
+        PCA(n_components=4).fit_transform(data['latent']),
+        labels=labels,
+    )
+    plots.plot_clusters(
+        f'{plots_dir}Clusters',
+        data['targets'],
+        data['latent'],
+        plot_3d=False,
+        labels=labels,
+        predictions=data['predictions'],
+    )
+    plots.plot_confusion(plots_dir, labels, data['targets'], data['predictions'])
 
 
 if __name__ == '__main__':
