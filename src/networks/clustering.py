@@ -312,7 +312,7 @@ class ClusterEncoder(BaseNetwork):
         data = super().predict(loader, header=header)
         data['latent'][:, 0] = (data['latent'][:, 0] * self.scale.detach().cpu().numpy() *
                                 self.transform[1] + self.transform[0])
-        accuracy = np.count_nonzero(data['targets'] == data['preds']) / len(data['ids'])
+        accuracy = np.count_nonzero(data['targets'].flatten() == data['preds']) / len(data['ids'])
         print(f"Accuracy: {accuracy:.1%}")
         self._save_predictions(path, data)
         return data

@@ -274,9 +274,9 @@ class GaussianDataset(Dataset):
 
         # self.labels[np.in1d(self.labels, 0.12)] = 1e-6
         # self.labels[np.in1d(self.labels, 0.4)] = 1e-5
-        self.labels[np.in1d(self.labels, 0.75)] = 1e-4
+        self.labels[np.in1d(self.labels, 0.4)] = 1e-4
 
-        bad_idxs = np.in1d(self.labels, [0.7, 0.4])
+        bad_idxs = np.in1d(self.labels, [0.75, 0.7])
         self.labels = np.delete(self.labels, bad_idxs, axis=0)
         self.images = np.delete(self.images, bad_idxs, axis=0)
 

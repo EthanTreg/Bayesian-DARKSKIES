@@ -51,20 +51,20 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     states_dir = config['output']['network-states-directory']
 
     # Fetch dataset
-    dataset = DarkDataset(
-        data_path,
-        [
-            'CDM+baryons',
-            'SIDM0.1+baryons',
-            'SIDM0.3+baryons',
-            'SIDM1+baryons',
-            'CDM_hi+baryons',
-            'CDM_low+baryons',
-            'zooms'
-            # 'vdSIDM+baryons',
-        ],
-    )
-    # dataset = GaussianDataset('../data/gaussian_data.pkl')
+    # dataset = DarkDataset(
+    #     data_path,
+    #     [
+    #         'CDM+baryons',
+    #         'SIDM0.1+baryons',
+    #         'SIDM0.3+baryons',
+    #         'SIDM1+baryons',
+    #         'CDM_hi+baryons',
+    #         'CDM_low+baryons',
+    #         'zooms'
+    #         # 'vdSIDM+baryons',
+    #     ],
+    # )
+    dataset = GaussianDataset('../data/gaussian_data.pkl')
 
     # Initialise network
     if load_num:
@@ -89,10 +89,10 @@ def init(config: dict | str = '../config.yaml') -> tuple[
         )
 
     # Initialise datasets
-    dataset.normalise(
-        idxs=torch.isin(dataset.labels, torch.unique(dataset.labels)[unknown:]),
-        transform=net.transform,
-    )
+    # dataset.normalise(
+    #     idxs=torch.isin(dataset.labels, torch.unique(dataset.labels)[unknown:]),
+    #     transform=net.transform,
+    # )
     net.classes = torch.unique(dataset.labels).to(device)
     loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=net.idxs)
     net.idxs = dataset.idxs
@@ -142,7 +142,7 @@ def main(config_path: str = '../config.yaml'):
     )
     data = network.predict(
         loaders[1],
-        path='../data/cluster_val_hydro.csv',
+        path='../data/cluster_val_hydro.pkl',
     )
     plots.plot_clusters(
         f'{plots_dir}PCA',

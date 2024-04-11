@@ -73,7 +73,7 @@ class Autoencoder(BaseNetwork):
         """
         bounds = torch.tensor([0., 1.]).to(self._device)
         output = self.net(in_data)
-        latent = self.net.clone
+        latent = self.net.checkpoints[-1]
 
         loss = nn.MSELoss()(output, in_data) + self.net.kl_loss
 

@@ -7,7 +7,7 @@ global-variables:
     - &network_configs_directory '../network_configs/'
     # File name for the network model to load
 #    - &network_name 'inceptionv4_v3'
-    - &network_name 'network_v13'
+    - &network_name 'network_v10'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
     - &data_path '../data/binned_data_20_hydro.pkl'
@@ -21,13 +21,13 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    network-epochs: 100
+    network-epochs: 30
     # Number of inputs to process between network weight updates
     batch-size: 60
     # File number to save the network progres
-    network-save: 0
+    network-save: 1004
     # File number to load the network state
-    network-load: 2
+    network-load: 0
     # Learning rate for training the network
     network-learning-rate: 2.0e-4
     # Validation dataset fraction
@@ -35,7 +35,7 @@ main:
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Zooms, No Stellar'
+    network-description: 'Gaussian Clustering, 0.4 Unknown'
     # Labels for the classes
     class-labels:
 #      - 'VD Low'
