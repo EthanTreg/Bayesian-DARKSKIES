@@ -39,17 +39,20 @@ class DarkDataset(Dataset):
     normalise()
         Normalises the labels
     """
-    def __init__(self, data_path: str, sims: list[str]):
+    def __init__(self, data_path: str, sims: list[str], unknown_sims: list[str]):
         """
         Parameters
         ----------
         data_path : string
             Path to the data file with the cluster dataset
-        sims : list[str]
+        sims : list[string]
             Which simulations to load
+        unknown_sims : list[string]
+            Which sims from sims should be unknown, excluding zooms which are already unknown
         """
         self.idxs = None
         self.transform = (0, 1)
+        self.unknown = unknown_sims
         log_0 = 4e-2
 
         # Load data from file
@@ -81,33 +84,47 @@ class DarkDataset(Dataset):
             ):
                 self.labels[np.flatnonzero(vd_idxs)[idx]] = sigma
 
+        for i, class_ in enumerate(self.unknown):
+            self.labels[np.in1d(labels['sim'], class_)[idxs]] = 10 ** -(i + 3)
+
         if 'zooms' in sims:
-            with open('../data/zooms.pkl', 'rb') as file:
-                images = pickle.load(file)
+            with open('../data/zooms_2.pkl', 'rb') as file:
+                labels, images = pickle.load(file)
 
             self.images = np.concatenate((self.images, images[:, :2]), axis=0)
-            self.labels = np.concatenate(
-                (self.labels, np.ones(images.shape[0]) * 1e-3),
-                axis=0,
-            )
+            # labels['label'][labels['label'] == 0.05] = 1e-2
+            labels['label'][labels['label'] == 0.1] *= 1.001
+            self.labels = np.concatenate((self.labels, labels['label']), axis=0)
             self.ids = np.concatenate(
-                (self.ids, np.ones(images.shape[0]) * np.max(self.ids) + 1),
+                (self.ids, np.arange(len(images)) + np.max(self.ids) + 1),
                 axis=0,
             )
+            # self.unknown.extend(['zooms_0.05'])
 
-        # self.labels[self.labels == 0.1] = 1e-4
+        if 'flamingo' in sims:
+            with open('../data/flamingo.pkl', 'rb') as file:
+                labels, images = pickle.load(file)
+
+            self.images = np.concatenate((self.images, images[:, :2]))
+            self.labels = np.concatenate((self.labels, np.ones(len(images)) * 1e-3))
+            self.ids = np.concatenate(
+                (self.ids, np.arange(len(images)) + np.max(self.ids) + 1),
+                axis=0,
+            )
+            self.unknown.extend(['flamingo'])
+
         self.labels[self.labels == 0] = log_0
         self.labels = np.log10(self.labels)
 
         # Metadata
-        del labels['galaxy_catalogues']
-        del labels['sim']
-        del labels['clusterID']
-        del labels['label']
-        self.meta = torch.from_numpy(np.array(
-            list(labels.values()),
-            dtype=float,
-        )).swapaxes(0, 1)[idxs]
+        # del labels['galaxy_catalogues']
+        # del labels['sim']
+        # del labels['clusterID']
+        # del labels['label']
+        # self.meta = torch.from_numpy(np.array(
+        #     list(labels.values()),
+        #     dtype=float,
+        # )).swapaxes(0, 1)[idxs]
         # self.meta, self.meta_transform = data_normalisation(self.meta, axis=0)
 
         self.labels = torch.from_numpy(self.labels).float()[:, None]
@@ -234,6 +251,7 @@ class ClusterDataset(Dataset):
         Gets the training data for the given index
 
         Parameters
+        ----------
         idx : integer
             Index of the target cluster
 
@@ -251,6 +269,8 @@ class GaussianDataset(Dataset):
 
     Attributes
     ----------
+    unknown : integer
+        Number of unknown classes
     ids : ndarray
         IDs for each Gaussian image in the dataset
     labels : Tensor
@@ -262,9 +282,20 @@ class GaussianDataset(Dataset):
     idxs : ndarray, default = None
         Data indices for random training & validation datasets
     """
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, known: list[float], unknown: list[float]):
+        """
+        Parameters
+        ----------
+        data_path : string
+            Path to the Gaussian dataset
+        known : list[float]
+            Known classes and labels
+        unknown : list[float]
+            Known classes with unknown labels
+        """
         self.idxs = None
         self.transform = (0, 1)
+        self.unknown = unknown
 
         with open(data_path, 'rb') as file:
             labels, images = pickle.load(file)
@@ -272,13 +303,12 @@ class GaussianDataset(Dataset):
         self.labels = labels
         self.images = images
 
-        # self.labels[np.in1d(self.labels, 0.12)] = 1e-6
-        # self.labels[np.in1d(self.labels, 0.4)] = 1e-5
-        self.labels[np.in1d(self.labels, 0.4)] = 1e-4
-
-        bad_idxs = np.in1d(self.labels, [0.75, 0.7])
+        bad_idxs = ~np.in1d(self.labels, known + self.unknown)
         self.labels = np.delete(self.labels, bad_idxs, axis=0)
         self.images = np.delete(self.images, bad_idxs, axis=0)
+
+        for i, class_ in enumerate(self.unknown):
+            self.labels[np.in1d(self.labels, class_)] = 10 ** -(i + 3)
 
         self.ids = np.arange(len(self.labels))
         self.labels = np.log10(self.labels)
@@ -288,7 +318,19 @@ class GaussianDataset(Dataset):
     def __len__(self) -> int:
         return len(self.ids)
 
-    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
+        """
+        Gets the training data for the given index
+        Parameters
+        ----------
+        idx : integer
+            Index of the target Gaussian image
+
+        Returns
+        -------
+        tuple[ndarray, Tensor, Tensor]
+            Image ID, label, image
+        """
         return self.ids[idx], self.labels[idx], self.images[idx]
 
 

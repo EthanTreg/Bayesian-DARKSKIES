@@ -3,14 +3,15 @@ Classes that contain multiple types of networks
 """
 import torch
 import numpy as np
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from netloader.network import Network
 from zuko.flows import NSF
 from numpy import ndarray
 
 from src.networks.base import BaseNetwork
-from src.utils.utils import get_device
+from src.networks.encoder_decoder import Encoder
+from src.utils.utils import get_device, label_change
 
 
 class NormFlow(BaseNetwork):
@@ -106,29 +107,29 @@ class NormFlow(BaseNetwork):
         return data
 
 
-class NormFlowEncoder(BaseNetwork):
+class NormFlowEncoder(Encoder):
     """
     Calculates the loss for a network and normalising flow that takes high-dimensional data
     and predicts a low-dimensional data distribution
 
     Attributes
     ----------
-    net : NSF
+    net : Network
         Normalising flow to predict low-dimensional data distribution
     net : Network
         Network to condition the normalising flow from high-dimensional data
     train_state : boolean, default = True
         If network should be in the train or eval state
-    train_flow : boolean, default = True
-        If normalising flow should be trained
-    train_encoder : boolean, default = False
-        If network should be trained
+    encoder_loss : float, default = 0
+        Loss for the output of the network
     description : string, default = ''
         Description of the network training
     transform : tuple[float, float], default = None
         Expected label transformation of the flow
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current flow training and validation losses
+    classes : (C) Tensor, default = None
+        Classes of size C for clustering
 
     Methods
     -------
@@ -151,8 +152,11 @@ class NormFlowEncoder(BaseNetwork):
             states_dir: str,
             net: Network,
             encoder: Network,
-            net_layers: int = None,
-            description: str = ''):
+            flow_checkpoint: int = None,
+            description: str = '',
+            verbose: str = 'full',
+            train_epochs: tuple[int, int] = None,
+            classes: Tensor = None):
         """
         Parameters
         ----------
@@ -164,17 +168,35 @@ class NormFlowEncoder(BaseNetwork):
             Normalising flow to predict low-dimensional data distribution
         encoder : Network
             Network to condition the normalising flow from high-dimensional data
-        net_layers : integer, default = None
-            Number of layers in the network to use, if None use all layers
+        flow_checkpoint : integer, default = None
+            Network checkpoint to pass into the flow, if none, will use output from the network
         description : string, default = ''
             Description of the network training
+        verbose : {'full', 'progress', None}
+            If details about epoch should be printed ('full'), just a progress bar ('progress'),
+            or nothing (None)
+        classes : Tensor, default = None
+            Unique classes if using class classification
         """
-        super().__init__(save_num, states_dir, net, description=description)
-        self._net_layers = net_layers
-        self.train_encoder = False
-        self.train_flow = True
+        super().__init__(
+            save_num,
+            states_dir,
+            net,
+            description=description,
+            verbose=verbose,
+            classes=classes,
+        )
+        self._checkpoint = flow_checkpoint
+        self._epochs = train_epochs
+        self.flow_loss = 1
+        self.encoder_loss = 0
         self.encoder = encoder
-        self.encoder.epoch = 0
+
+        if self._epochs is None:
+            self._epochs = (0, -1)
+
+        self._train_flow = not self._epochs[0]
+        self._train_encoder = bool(self._epochs[-1])
 
     def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
@@ -194,11 +216,26 @@ class NormFlowEncoder(BaseNetwork):
         float
             Loss from the flow's predictions'
         """
-        # Temporarily truncate the network
-        self.encoder.layer_num = self._net_layers
+        loss = torch.tensor(0.).to(self._device)
+
+        # Encoder outputs
+        output = self.encoder(in_data)
+
+        if self._checkpoint:
+            flow_input = self.encoder.checkpoints[self._checkpoint]
+        else:
+            flow_input = output
 
         # Normalising flow loss
-        loss = -self.net(self.encoder(in_data)).log_prob(target).mean()
+        if self.flow_loss:
+            loss += self.flow_loss * -self.net(flow_input).log_prob(target).mean()
+
+        # Default shape is (N, L), but cross entropy expects (N)
+        if self.encoder_loss and isinstance(self._loss_function, nn.CrossEntropyLoss):
+            target = label_change(target.squeeze(), self.classes)
+
+        if self.encoder_loss:
+            loss += self.encoder_loss * self._loss_function(output, target)
 
         if not self.train_state:
             self.encoder.layer_num = None
@@ -209,14 +246,11 @@ class NormFlowEncoder(BaseNetwork):
         self.encoder.optimiser.zero_grad()
         loss.backward()
 
-        if self.train_encoder:
+        if self._train_encoder:
             self.encoder.optimiser.step()
 
-        if self.train_flow:
+        if self._train_flow:
             self.net.optimiser.step()
-
-        # Remove network truncation
-        self.encoder.layer_num = None
 
         return loss.item()
 
@@ -261,25 +295,24 @@ class NormFlowEncoder(BaseNetwork):
         integer
             Epoch number
         """
-        if self.train_flow:
-            self.net.epoch += 1
+        super().epoch()
 
-        if self.train_encoder:
-            self.encoder.epoch += 1
+        if self._epoch >= self._epochs[0] != -1:
+            self._train_flow = True
 
-        if self.train_flow:
-            return self.net.epoch
+        if self._epoch >= self._epochs[-1] != -1:
+            self._train_encoder = False
 
-        return self.encoder.epoch
+        return self._epoch
 
     def scheduler(self):
         """
         Updates the scheduler for the flow and/or network if they are being trained
         """
-        if self.train_flow:
+        if self._train_flow:
             super().scheduler()
 
-        if self.train_encoder:
+        if self._train_encoder:
             self.encoder.scheduler.step(self.losses[1][-1])
 
     def predict(
@@ -304,7 +337,7 @@ class NormFlowEncoder(BaseNetwork):
             Path as a pkl file to save the predictions if they should be saved
         samples : list[integer], default = [1e3]
             Number of samples to generate from the predicted distribution
-        header : list[string], default = ['ids', 'targets', 'probs', 'max', 'meds', 'distributions']
+        header : list[string], default = ['ids', 'targets', 'preds', 'distributions', 'probs', 'max', 'meds']
             Header for the predicted data, only used by child classes
 
         Returns
@@ -315,10 +348,11 @@ class NormFlowEncoder(BaseNetwork):
         """
         probs = []
         maxima = []
-        data = super().predict(loader, samples=samples)
 
         if header is None:
-            header = ['ids', 'targets', 'probs', 'max', 'meds', 'distributions']
+            header = ['ids', 'targets', 'preds', 'distributions', 'probs', 'max', 'meds']
+
+        data = super().predict(loader, header=header, samples=samples)
 
         for target, distribution in zip(data['targets'], data['distributions']):
             hist, bins = np.histogram(distribution, bins=bin_num, density=True)
@@ -327,9 +361,9 @@ class NormFlowEncoder(BaseNetwork):
             probs.append(prob[np.clip(np.digitize(target, bins) - 1, 0, bin_num - 1)])
             maxima.append(bins[np.argmax(hist)])
 
-        data[header[2]] = np.stack(probs)
-        data[header[3]] = np.stack(maxima)
-        data[header[4]] = np.median(data[-1], axis=-1)
+        data[header[-3]] = np.stack(probs)
+        data[header[-2]] = np.stack(maxima)
+        data[header[-1]] = np.median(data['distributions'], axis=-1)
         self._save_predictions(path, data)
         return data
 
@@ -350,19 +384,24 @@ class NormFlowEncoder(BaseNetwork):
             S samples from N probability distributions for the given data
         """
         if samples is None:
-            samples = [1e3]
+            samples = [int(1e3)]
 
-        # Temporarily truncate the network and generate samples
-        self.encoder.layer_num = self._net_layers
+        # Encoder outputs
+        output = self.encoder(data)
+
+        if self._checkpoint:
+            flow_input = self.encoder.checkpoints[self._checkpoint]
+        else:
+            flow_input = output
+
+        # Generate samples
         samples = torch.transpose(
-            self.net(self.encoder(data)).sample([samples]).squeeze(-1),
+            self.net(flow_input).sample(samples).squeeze(-1),
             0,
             1,
         )
 
-        # Remove network truncation
-        self.encoder.layer_num = None
-        return (samples.detach().cpu().numpy(),)
+        return output.detach().cpu().numpy(), samples.detach().cpu().numpy()
 
 
 def norm_flow(
@@ -370,7 +409,7 @@ def norm_flow(
         transforms: int,
         learning_rate: float,
         hidden_features: list[int],
-        context: int = 0) -> NSF:
+        context: int = 0) -> Network:
     """
     Generates a neural spline flow (NSF) for use in BaseNetwork
 
@@ -391,18 +430,16 @@ def norm_flow(
 
     Returns
     -------
-    NSF
+    Network
         Neural spline flow with attributes required for training
     """
-    device = get_device()[1]
     flow = NSF(
         features=features,
         context=context,
         transforms=transforms,
         hidden_features=hidden_features,
-    ).to(device)
+    ).to(get_device()[1])
 
-    flow._device = device
     flow.name = 'flow'
     flow.optimiser = torch.optim.Adam(flow.parameters(), lr=learning_rate)
     flow.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
