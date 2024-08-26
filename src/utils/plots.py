@@ -23,6 +23,7 @@ MARKERS = ['o', 'x', '^', 's', '*', '1', 'd', '+', 'p', 'D']
 RECTANGLE = (16, 9)
 SQUARE = (10, 10)
 HI_RES = (32, 18)
+HI_RES_SQUARE = (20, 20)
 
 
 def _init_plot(
@@ -663,7 +664,7 @@ def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predicti
     """
     classes = np.unique(targets)
     matrix = np.zeros((len(classes), len(classes)))
-    plt.figure(figsize=SQUARE, constrained_layout=True)
+    plt.figure(figsize=SQUARE if len(classes) < 5 else HI_RES_SQUARE, constrained_layout=True)
 
     # Generate confusion matrix
     for matrix_row, class_ in zip(matrix, classes):
@@ -688,13 +689,13 @@ def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predicti
 def plot_distributions(
         plots_dir: str,
         name: str,
-        data: ndarray,
+        data: list[ndarray] | ndarray,
         y_axis: bool = True,
         num_plots: int = 12,
         labels: list[str] = None,
-        hist_kwargs: dict = None,
-        titles: ndarray = None,
-        data_twin: ndarray = None):
+        titles: list[str] = None,
+        data_twin: ndarray = None,
+        **kwargs):
     """
     Plots the distributions for a number of examples
 
@@ -704,7 +705,7 @@ def plot_distributions(
         Directory to save plots
     name : string
         File name to save plot
-    data : ndarray
+    data : list[ndarray] | ndarray
         Distributions to plot, each row is a different distribution
     y_axis : boolean, default = True
         If y-axis should be plotted
@@ -712,31 +713,32 @@ def plot_distributions(
         Number of distributions to plot, number of rows in data will be used if rows < num_plots
     labels : list[string], default = None
         Labels for data and data_twin if provided
-    hist_kwargs : dictionary, default = None
-        Optional keyword arguments for plotting the histogram
-    titles : ndarray, default = None
+    titles : list[str], default = None
         Titles for the distributions
     data_twin : ndarray, default = None
         Twin distributions to plot, each row is a different distribution corresponding to data
+
+    **kwargs
+        Optional keyword arguments for plotting the histogram
     """
-    fig, axes = _init_plot(subplot_grid(min(data.shape[0], num_plots)))
+    fig, axes = _init_plot(subplot_grid(min(len(data), num_plots)))
 
     if labels is None:
         labels = (None, None)
 
     if data_twin is None:
-        data_twin = [None] * data.shape[0]
+        data_twin = [None] * len(data)
 
     if titles is None:
-        titles = [None] * data.shape[0]
+        titles = [None] * len(data)
 
     for title, datum, datum_twin, axis in zip(titles, data, data_twin, axes.values()):
         twin_axis = _plot_histogram(
             datum,
             axis,
             labels=labels,
-            hist_kwargs=hist_kwargs,
             data_twin=datum_twin,
+            **kwargs,
         )
         axis.set_title(title, fontsize=MINOR)
 

@@ -15,7 +15,7 @@ from netloader.network import Network
 from zuko.flows import NSF
 from numpy import ndarray
 
-from src.utils.utils import save_name, get_device
+from src.utils.utils import save_name, get_device, progress_bar
 
 
 class BaseNetwork:
@@ -54,7 +54,13 @@ class BaseNetwork:
     batch_predict(high_dim) -> Tensor
         Generates predictions for the given data batch
     """
-    def __init__(self, save_num: int, states_dir: str, net: Network, description: str = ''):
+    def __init__(
+            self,
+            save_num: int,
+            states_dir: str,
+            net: Network,
+            description: str = '',
+            verbose: str = 'full'):
         """
         Parameters
         ----------
@@ -66,7 +72,12 @@ class BaseNetwork:
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
+        verbose : {'full', 'progress', None}
+            If details about epoch should be printed ('full'), just a progress bar ('progress'),
+            or nothing (None)
         """
+        self._epoch = 0
+        self._verbose = verbose
         self._device = get_device()[1]
         self.train_state = True
         self.description = description
@@ -74,7 +85,6 @@ class BaseNetwork:
         self.losses = ([], [])
         self.idxs = None
         self.net = net
-        self.net.epoch = 0
 
         if save_num:
             self.save_path = save_name(save_num, states_dir, self.net.name)
@@ -215,7 +225,7 @@ class BaseNetwork:
         else:
             self.net.eval()
 
-    def load(self, load_num: int, states_dir: str, network: NSF | Network = None):
+    def load(self, load_num: int, states_dir: str, network: Network | NSF = None):
         """
         Loads the network from a previously saved state, if load_num != 0
 
@@ -227,7 +237,7 @@ class BaseNetwork:
             File number of the saved state
         states_dir : string
             Directory to the save files
-        network : NSF | Network, default = self.network
+        network : Network | NSF, default = self.network
             Network to load
 
         Returns
@@ -272,22 +282,22 @@ class BaseNetwork:
         integer
             Epoch number
         """
-        self.net.epoch += 1
-        return self.net.epoch
+        self._epoch += 1
+        return self._epoch
 
-    def training(self, epoch: int, loaders: tuple[DataLoader, DataLoader]):
+    def training(self, epochs: int, loaders: tuple[DataLoader, DataLoader]):
         """
         Trains & validates the network for each epoch
 
         Parameters
         ----------
-        epoch : integer
+        epochs : integer
             Number of epochs to train the network up to
         loaders : tuple[DataLoader, DataLoader]
             Train and validation dataloaders
         """
         # Train for each epoch
-        for _ in range(self.net.epoch, epoch):
+        for i in range(self._epoch, epochs):
             t_initial = time()
 
             # Train network
@@ -303,10 +313,20 @@ class BaseNetwork:
             self.epoch()
             self.save()
 
-            print(f'Epoch [{self.net.epoch}/{epoch}]\t'
-                  f'Training loss: {self.losses[0][-1]:.3e}\t'
-                  f'Validation loss: {self.losses[1][-1]:.3e}\t'
-                  f'Time: {time() - t_initial:.1f}')
+            if self._verbose == 'full':
+                print(f'Epoch [{self._epoch}/{epochs}]\t'
+                      f'Training loss: {self.losses[0][-1]:.3e}\t'
+                      f'Validation loss: {self.losses[1][-1]:.3e}\t'
+                      f'Time: {time() - t_initial:.1f}')
+            elif self._verbose == 'progress':
+                progress_bar(
+                    i,
+                    epochs,
+                    text=f'Epoch [{self._epoch}/{epochs}]\t'
+                         f'Training loss: {self.losses[0][-1]:.3e}\t'
+                         f'Validation loss: {self.losses[1][-1]:.3e}\t'
+                         f'Time: {time() - t_initial:.1f}',
+                )
 
         self.train(False)
         final_loss = self._train_val(loaders[1])
@@ -357,9 +377,9 @@ class BaseNetwork:
 
         # Transform values
         data = self._predict(loader, **kwargs)
-        data.iloc[1:3] = data.iloc[1:3] * self.transform[1] + self.transform[0]
-        data.columns = header
-        data = {key: np.stack(array) for key, array in data.items()}
+        data.iloc[:, 1:3] = data.iloc[:, 1:3] * self.transform[1] + self.transform[0]
+        data.columns = header[:len(data.columns)]
+        data = {key: np.stack(array).squeeze() for key, array in data.items()}
         self._save_predictions(path, data)
         return data
 

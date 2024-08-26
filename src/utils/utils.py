@@ -215,6 +215,31 @@ def open_config(key: str, config_path: str, parser: ArgumentParser = None) -> tu
     return config_path, config
 
 
+def progress_bar(i: int, total: int, text: str = ''):
+    """
+    Terminal progress bar
+
+    Parameters
+    ----------
+    i : integer
+        Current progress
+    total : integer
+        Completion number
+    text : string, default = '
+        Optional text to place at the end of the progress bar
+    """
+    length = 50
+    i += 1
+
+    filled = int(i * length / total)
+    percent = i * 100 / total
+    bar_fill = '█' * filled + '-' * (length - filled)
+    print(f'\rProgress: |{bar_fill}| {int(percent)}%\t{text}\t', end='')
+
+    if i == total:
+        print()
+
+
 def save_name(num: int, states_dir: str, name: str) -> str:
     """
     Standardises the network save file naming

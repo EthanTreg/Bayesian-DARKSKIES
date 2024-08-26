@@ -70,7 +70,8 @@ class ClusterEncoder(BaseNetwork):
             net: Network,
             unknown: int = 1,
             method: str = 'mean',
-            description: str = ''):
+            description: str = '',
+            verbose: str = 'full'):
         """
         Parameters
         ----------
@@ -88,8 +89,11 @@ class ClusterEncoder(BaseNetwork):
             Whether to calculate the center of a cluster using the 'mean' or 'median'
         description : string, default = ''
             Description of the network training
+        verbose : {'full', 'progress', None}
+            If details about epoch should be printed ('full'), just a progress bar ('progress'),
+            or nothing (None)
         """
-        super().__init__(save_num, states_dir, net, description=description)
+        super().__init__(save_num, states_dir, net, description=description, verbose=verbose)
         self._unknown = unknown
         self._method = method
         self._output = []
@@ -147,7 +151,7 @@ class ClusterEncoder(BaseNetwork):
             if self.compact_loss and len(latent[labels == batch_class]) > 1:
                 loss += self._cluster_loss(latent, labels, batch_class)
 
-        return loss / (len(torch.unique(labels)) - self._unknown)
+        return self.compact_loss * loss / (len(torch.unique(labels)) - self._unknown)
 
     def _cluster_loss(self, latent: Tensor, labels: Tensor, cluster_class: Tensor) -> Tensor:
         """
@@ -167,22 +171,14 @@ class ClusterEncoder(BaseNetwork):
         Tensor
             Loss for the cluster standard deviation in the direction to the nearest cluster
         """
-        class_idx = self.classes == cluster_class
-        class_vecs = latent[labels == cluster_class] - self._cluster_centers[class_idx]
+        idxs = self.classes == cluster_class
+        class_vecs = latent[labels == cluster_class] - self._cluster_centers[idxs]
 
-        # Standard deviation in the direction to the closest class
-        direc = torch.min(
-            torch.abs(
-                self._cluster_centers[~class_idx][self._unknown:] -
-                self._cluster_centers[class_idx],
-            ),
-            dim=0,
-        )[0]
+        # Direction to the other classes
+        direcs = self._cluster_centers[~idxs][self._unknown:] - self._cluster_centers[idxs]
 
-        return self.compact_loss * torch.std(torch.linalg.norm(torch.multiply(
-            (torch.sum(class_vecs * direc, dim=1) / torch.dot(direc, direc))[:, None],
-            direc[None],
-        ), dim=1))
+        # Average scatter in the direction of the other classes
+        return torch.mean(class_vecs @ direcs.T / torch.linalg.norm(direcs, dim=-1) ** 2)
 
     def _distance_loss(self) -> Tensor:
         """
@@ -257,8 +253,11 @@ class ClusterEncoder(BaseNetwork):
                 torch.isin(target, self.classes[:self._unknown]).any()):
             idxs = target.flatten() == self.classes[:self._unknown]
             loss += self.sim_loss * nn.MSELoss()(
-                torch.cdist(latent[idxs, :1], latent[~idxs, :1]),
-                torch.cdist(self.net.checkpoints[-3][idxs], self.net.checkpoints[-3][~idxs]),
+                torch.cdist(latent[idxs, :1], latent[~idxs, :1]) / np.sqrt(latent.size(-1)),
+                torch.cdist(
+                    self.net.checkpoints[-3][idxs],
+                    self.net.checkpoints[-3][~idxs],
+                ) / np.sqrt(self.net.checkpoints[-3].size(-1)),
             )
 
         if self.cluster:
@@ -270,7 +269,7 @@ class ClusterEncoder(BaseNetwork):
 
         # Classification loss
         if self.classify and self.class_loss:
-            one_hot = label_change(target.squeeze(), self.classes)
+            one_hot = label_change(target.squeeze(), self.classes, one_hot=True)
             loss += self.class_loss * nn.CrossEntropyLoss()(output, one_hot)
 
         # Update network
@@ -382,7 +381,8 @@ class CompactClusterEncoder(ClusterEncoder):
             steps: int = 3,
             unknown: int = 1,
             method: str = 'mean',
-            description: str = ''):
+            description: str = '',
+            verbose: str = 'full'):
         """
         Parameters
         ----------
@@ -402,6 +402,9 @@ class CompactClusterEncoder(ClusterEncoder):
             Whether to calculate the center of a cluster using the 'mean' or 'median'
         description : string, default = ''
             Description of the network training
+        verbose : {'full', 'progress', None}
+            If details about epoch should be printed ('full'), just a progress bar ('progress'),
+            or nothing (None)
         """
         super().__init__(
             save_num,
@@ -411,6 +414,7 @@ class CompactClusterEncoder(ClusterEncoder):
             unknown=unknown,
             method=method,
             description=description,
+            verbose=verbose,
         )
         self._steps = steps
         self.sim_loss = 0  # Unused

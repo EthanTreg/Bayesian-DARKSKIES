@@ -7,11 +7,12 @@ global-variables:
     - &network_configs_directory '../network_configs/'
     # File name for the network model to load
 #    - &network_name 'inceptionv4_v3'
-    - &network_name 'network_v10'
+#    - &network_name 'network_v8'
+    - &network_name 'network_v8'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
-    - &data_path '../data/binned_data_20_hydro.pkl'
-#    - &data_path '../data/cluster_data.pkl'
+    - &data_dir '../data/'
+#    - &data_path '../data/gaussian_data.pkl'
   output-variables:
     # Directory to save network training states
     - &network_states_directory '../model_states/'
@@ -21,34 +22,37 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    network-epochs: 30
+    network-epochs: 100
     # Number of inputs to process between network weight updates
-    batch-size: 60
+    batch-size: 120
     # File number to save the network progres
-    network-save: 1004
+    network-save: 14
     # File number to load the network state
     network-load: 0
     # Learning rate for training the network
-    network-learning-rate: 2.0e-4
+    network-learning-rate: 1.0e-4
     # Validation dataset fraction
     validation-fraction: 0.15
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Gaussian Clustering, 0.4 Unknown'
+    network-description: 'Unknown new flamingo, no bottleneck'
     # Labels for the classes
     class-labels:
 #      - 'VD Low'
 #      - 'VD Mid'
 #      - 'VD High'
-      - 'Zooms'
+      - 'flamingo'
       - 'CDM Low'
       - 'CDM'
       - 'CDM High'
+      - 'Zoom 0.05'
+      - 'Zoom 0.1'
       - '$\sigma=0.1$'
       - '$\sigma=0.3$'
       - '$\sigma=1$'
-#      - '0.12'
+#      - '0.4'
+#      - '0.7'
 #      - '0.75'
 #      - '0.05'
 #      - '0.1'
@@ -58,7 +62,7 @@ main:
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters
-    data-path: *data_path
+    data-dir: *data_dir
     # Path to the configuration files for the encoder and decoder
     network-configs-directory: *network_configs_directory
   # Directory locations for the different outputs

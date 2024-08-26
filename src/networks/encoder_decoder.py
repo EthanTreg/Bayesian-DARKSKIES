@@ -36,7 +36,8 @@ class Autoencoder(BaseNetwork):
             save_num: int,
             states_dir: str,
             net: Network,
-            description: str = ''):
+            description: str = '',
+            verbose: str = 'full'):
         """
         Parameters
         ----------
@@ -48,8 +49,11 @@ class Autoencoder(BaseNetwork):
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
+        verbose : {'full', 'progress', None}
+            If details about epoch should be printed ('full'), just a progress bar ('progress'),
+            or nothing (None)
         """
-        super().__init__(save_num, states_dir, net, description=description)
+        super().__init__(save_num, states_dir, net, description=description, verbose=verbose)
         self.latent_loss = 1e-2
         self.bound_loss = 1e-3
 
@@ -168,6 +172,8 @@ class Encoder(BaseNetwork):
         Expected low-dimensional data transformation of the network
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current network training and validation losses
+    classes : (C) Tensor, default = None
+        Unique classes of size C if using class classification
 
     Methods
     -------
@@ -180,8 +186,8 @@ class Encoder(BaseNetwork):
             states_dir: str,
             net: Network,
             description: str = '',
-            classes: Tensor = None,
-            loss_function: nn.Module = nn.MSELoss()):
+            verbose: str = 'full',
+            classes: Tensor = None):
         """
         Parameters
         ----------
@@ -193,14 +199,20 @@ class Encoder(BaseNetwork):
             Network to predict low-dimensional data
         description : string, default = ''
             Description of the network training
-        classes : Tensor, default = None
-            Unique classes if using class classification
-        loss_function : Module, default = MSELoss
-            Loss function to use
+        verbose : {'full', 'progress', None}
+            If details about epoch should be printed ('full'), just a progress bar ('progress'),
+            or nothing (None)
+        classes : (C) Tensor, default = None
+            Unique classes of size C if using class classification
         """
-        super().__init__(save_num, states_dir, net, description=description)
-        self._classes = classes.to(self._device)
-        self._loss_function = loss_function
+        super().__init__(save_num, states_dir, net, description=description, verbose=verbose)
+
+        if classes is None:
+            self.classes = classes
+            self._loss_function = nn.MSELoss()
+        else:
+            self.classes = classes.to(self._device)
+            self._loss_function = nn.CrossEntropyLoss()
 
     def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
@@ -224,7 +236,7 @@ class Encoder(BaseNetwork):
 
         # Default shape is (N, L), but cross entropy expects (N)
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
-            target = label_change(target.squeeze(), self._classes)
+            target = label_change(target.squeeze(), self.classes)
 
         loss = self._loss_function(output, target)
         self._update(loss)
@@ -244,9 +256,9 @@ class Encoder(BaseNetwork):
         tuple[N ndarray]
             N predictions for the given data
         """
-        output = super().batch_predict(data)
+        output = super().batch_predict(data)[0]
 
         if isinstance(self._loss_function, nn.CrossEntropyLoss):
             output = np.argmax(output, axis=-1)
 
-        return (output.detach().cpu().numpy(),)
+        return (output,)

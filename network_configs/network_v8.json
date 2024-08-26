@@ -1,121 +1,91 @@
 {
   "net": {
-    "2d": 1,
     "checkpoints": 1,
-    "convolutional": {
-      "dropout": 0.05,
-      "dropout_no_val": 0
+    "Conv": {
+      "dropout": 0.05
     },
-    "linear": {
-      "dropout_no_val": 0
+    "Composite": {
+      "name": "inception",
+      "config_dir": "../network_configs/composite_layers/"
     },
     "description": "Clustering"
   },
   "layers": [
     {
-      "type": "checkpoint"
+      "type": "Checkpoint"
     },
     {
-      "type": "index",
-      "number": -9,
-      "greater": false
+      "type": "Composite",
+      "channels": 64
     },
     {
-      "type": "reshape",
-      "output": [2, 100, 100]
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 64,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 128
     },
     {
-      "type": "pool"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 128,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "pool"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "pool"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "pool"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Reshape",
+      "shape": [-1]
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Checkpoint"
     },
     {
-      "type": "reshape",
-      "output": [-1]
-    },
-    {
-      "type": "checkpoint"
-    },
-    {
-      "type": "skip",
-      "layer": 0
-    },
-    {
-      "type": "index",
-      "number": -9
-    },
-    {
-      "type": "concatenate",
-      "layer": -1
-    },
-    {
-      "type": "linear",
+      "type": "Linear",
       "features": 256
     },
     {
-      "type": "checkpoint"
+      "type": "Checkpoint"
     },
     {
-      "type": "linear",
+      "type": "Linear",
       "features": 7,
       "dropout": 0
     },
     {
-      "type": "checkpoint"
+      "type": "Checkpoint"
     },
     {
-      "type": "linear",
+      "type": "Linear",
       "features": 64
     },
     {
-      "type": "linear",
+      "type": "Linear",
       "factor": 1,
       "dropout": 0
     }
