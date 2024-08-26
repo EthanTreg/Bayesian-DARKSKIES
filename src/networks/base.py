@@ -336,7 +336,12 @@ class BaseNetwork:
         """
         Updates the scheduler for the network
         """
+        # learning_rate = self.net.scheduler.get_last_lr()
         self.net.scheduler.step(self.losses[1][-1])
+        # new_learning_rate = self.net.scheduler.get_last_lr()
+
+        # if learning_rate[-1] != new_learning_rate[-1]:
+        #     print(f'Learning rate update: {new_learning_rate[-1]:.3e}')
 
     def save(self):
         """
