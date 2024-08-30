@@ -8,10 +8,10 @@ global-variables:
     # File name for the network model to load
 #    - &network_name 'inceptionv4_v3'
 #    - &network_name 'network_v8'
-    - &network_name 'network_v8'
+    - &network_name 'convnext'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
-    - &data_path '../data/binned_data_20_hydro.pkl'
+    - &data_dir '../data/'
 #    - &data_path '../data/gaussian_data.pkl'
   output-variables:
     # Directory to save network training states
@@ -22,34 +22,33 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    network-epochs: 200
+    network-epochs: 50
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 11
+    network-save: 1
     # File number to load the network state
-    network-load: 11
+    network-load: 1
     # Learning rate for training the network
-#    network-learning-rate: 2.0e-4
     network-learning-rate: 1.0e-4
     # Validation dataset fraction
     validation-fraction: 0.15
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Ordered Bottleneck'
+    network-description: 'Unknown zooms0.05, ConvNeXt'
     # Labels for the classes
     class-labels:
 #      - 'VD Low'
 #      - 'VD Mid'
 #      - 'VD High'
-      - 'flamingo'
+#      - 'flamingo'
+      - 'Zoom 0.05'
       - 'CDM Low'
       - 'CDM'
       - 'CDM High'
-      - 'Zoom 0.05'
-      - '$\sigma=0.1$'
       - 'Zoom 0.1'
+      - '$\sigma=0.1$'
       - '$\sigma=0.3$'
       - '$\sigma=1$'
 #      - '0.4'
@@ -63,7 +62,7 @@ main:
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters
-    data-path: *data_path
+    data-dir: *data_dir
     # Path to the configuration files for the encoder and decoder
     network-configs-directory: *network_configs_directory
   # Directory locations for the different outputs

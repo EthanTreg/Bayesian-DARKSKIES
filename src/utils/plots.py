@@ -11,8 +11,9 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from scipy.stats import gaussian_kde
 from scipy.optimize import minimize
+from netloader.utils.utils import label_change
 
-from src.utils.utils import label_change, legend_marker, subplot_grid
+from src.utils.utils import legend_marker, subplot_grid
 
 MAJOR = 24
 MINOR = 20
@@ -23,6 +24,7 @@ MARKERS = ['o', 'x', '^', 's', '*', '1', 'd', '+', 'p', 'D']
 RECTANGLE = (16, 9)
 SQUARE = (10, 10)
 HI_RES = (32, 18)
+HI_RES_SQUARE = (20, 20)
 
 
 def _init_plot(
@@ -36,23 +38,23 @@ def _init_plot(
 
     Parameters
     ----------
-    subplots : string | tuple[integer, integer] | list | ndarray
-        Argument for subplot or mosaic layout, mosaic will use string or list
+    subplots : str | tuple[int, int] | list | ndarray
+        Argument for subplot or mosaic layout, mosaic will use str or list
         and subplots will use tuple
-    legend : boolean, default = False,
+    legend : bool, default = False,
         If the figure will have a legend at the top, then space will be made
-    x_label : string, default = None
+    x_label : str, default = None
         X label for the plot
-    y_label : string, default = None
+    y_label : str, default = None
         Y label for the plot
-    fig_size : tuple[integer, integer]
+    fig_size : tuple[int, int]
         Size of the figure
     **kwargs
         Optional arguments for the subplot or mosaic function
 
     Returns
     -------
-    tuple[Figure, dictionary | ndarray]
+    tuple[Figure, dict | ndarray]
         Figure and subplot axes
     """
     # Plots either subplot or mosaic
@@ -94,9 +96,9 @@ def _legend(
         Legend matplotlib handles and labels of size L to be unpacked into handles and labels
     fig : Figure
         Figure to add legend to
-    columns : integer, default = 2
+    columns : int, default = 2
         Number of columns for the legend
-    loc : string, default = 'outside upper center'
+    loc : str, default = 'outside upper center'
         Location to place the legend
 
     Returns
@@ -174,9 +176,9 @@ def _plot_clusters_2d(
 
     Parameters
     ----------
-    colour : string
+    colour : str
         Colour of the data
-    label : string
+    label : str
         Label for the data
     data : (N,2) ndarray
         N (x,y) data points to plot
@@ -186,7 +188,7 @@ def _plot_clusters_2d(
         Min and max values for the x and y axes
     density : bool, default = True
         If density contours should be plotted or confidence ellipses
-    bins : integer, default = 200
+    bins : int, default = 200
         Resolution of the density plot contours or number of histogram bins
     cmap : str | Colormap, default = None
         Colour of the density contours, required if density is True
@@ -253,11 +255,11 @@ def _plot_clusters_3d(
 
     Parameters
     ----------
-    label : string
+    label : str
         Label for the data
-    colour : string
+    colour : str
         Colour of the data
-    cmap : string | Colormap
+    cmap : str | Colormap
         Colour of the density contours
     data : Nx3 ndarray
         N (x,y,z) data points to plot
@@ -265,7 +267,7 @@ def _plot_clusters_3d(
         Axis to plot 3D scatter plot with contours
     ranges : 2x2 ndarray
         Min and max values for the x and y axes
-    bins : integer, default = 200
+    bins : int, default = 200
         Resolution of the density plot contours
     """
     alpha = 0.4
@@ -316,7 +318,7 @@ def _plot_density(
 
     Parameters
     ---------
-    colour : string
+    colour : str
         Colour of the contour lines
     ranges : (2,2) ndarray
         Min and max values for the x and y axes
@@ -324,9 +326,9 @@ def _plot_density(
         N (x,y) data points to generate density contour for
     axis : Axes
         Axis to add density contour
-    cmap : string | Colormap
+    cmap : str | Colormap
         Colour map for the density contours
-    bins : integer, default = 200
+    bins : int, default = 200
         Resolution of the contours
     alpha : float, default = 0.2
         Alpha value for the contour
@@ -376,13 +378,13 @@ def _plot_ellipse(colour: str, data: ndarray, axis: Axes, stds: list[int] = None
 
     Parameters
     ----------
-    colour : string
+    colour : str
         Colour of the confidence ellipse border
     data : Nx2 ndarray
         N (x,y) data points to generate confidence ellipse for
     axis : Axes
         Axis to add confidence ellipse
-    stds : list[integer], default = [1]
+    stds : list[int], default = [1]
         The standard deviations of the confidence ellipses
     """
     data = data.swapaxes(0, 1)
@@ -425,17 +427,17 @@ def _plot_histogram(
         Primary data to plot
     axis : Axes
         Axis to plot on
-    log : boolean, default = False
+    log : bool, default = False
         If data should be plotted on a log scale, expects linear data
-    density : boolean, default = False
+    density : bool, default = False
         If histogram should be plotted as a kernel density estimation
-    bins : integer, default = 100
+    bins : int, default = 100
         Number of bins
     alpha : float, default = 0.2 if density, 0.5 if data_twin is provided; otherwise, 1
         Transparency of the histogram, gets halved if data_twin is provided
-    colour : string
+    colour : str
         Colour of the histogram or density plot
-    labels : list[string], default = None
+    labels : list[str], default = None
         Labels for data and, if provided, data_twin
     data_range : tuple[float, float], default = None
         x-axis data range, required if density is True
@@ -527,7 +529,7 @@ def plot_clusters(
 
     Parameters
     ----------
-    path : string
+    path : str
         Path to save plots
     classes : N ndarray
         Data classes for N data points
@@ -535,11 +537,11 @@ def plot_clusters(
         N cluster data points of dimension D = {1,2}
     density : bool, default = True
         If density contours should be plotted or confidence ellipses
-    plot_3d : boolean, default = False
+    plot_3d : bool, default = False
         If 3D plot or corner plot should be used for 3D data
-    bins : integer, default = 200
+    bins : int, default = 200
         Resolution of the density plot contours or number of bins if density is False
-    labels : list[string], default = None
+    labels : list[str], default = None
         Class labels
     predictions : N ndarray, default = None
         Class predicted labels
@@ -652,9 +654,9 @@ def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predicti
 
     Parameters
     ----------
-    plots_dir : string
+    plots_dir : str
         Directory to save plots
-    labels : list[string]
+    labels : list[str]
         Labels for each class
     targets : N ndarray
         Target values
@@ -663,7 +665,7 @@ def plot_confusion(plots_dir: str, labels: list[str], targets: ndarray, predicti
     """
     classes = np.unique(targets)
     matrix = np.zeros((len(classes), len(classes)))
-    plt.figure(figsize=SQUARE, constrained_layout=True)
+    plt.figure(figsize=SQUARE if len(classes) < 5 else HI_RES_SQUARE, constrained_layout=True)
 
     # Generate confusion matrix
     for matrix_row, class_ in zip(matrix, classes):
@@ -700,17 +702,17 @@ def plot_distributions(
 
     Parameters
     ----------
-    plots_dir : string
+    plots_dir : str
         Directory to save plots
-    name : string
+    name : str
         File name to save plot
     data : list[ndarray] | ndarray
         Distributions to plot, each row is a different distribution
-    y_axis : boolean, default = True
+    y_axis : bool, default = True
         If y-axis should be plotted
-    num_plots : integer, default = 16
+    num_plots : int, default = 16
         Number of distributions to plot, number of rows in data will be used if rows < num_plots
-    labels : list[string], default = None
+    labels : list[str], default = None
         Labels for data and data_twin if provided
     titles : list[str], default = None
         Titles for the distributions
@@ -767,7 +769,7 @@ def plot_param_comparison(plots_dir: str, x_data: ndarray, y_data: ndarray):
 
     Parameters:
     ----------
-    plots_dir : string
+    plots_dir : str
         Directory to save plots
     x_data : ndarray
         X-axis data
@@ -807,7 +809,7 @@ def plot_param_pairs(
     ----------
     data : NxL ndarray
         Data to plot parameter pairs for N data points and L parameters
-    plots_dir : string, default = None
+    plots_dir : str, default = None
         Directory to save plots
     ranges : Lx2 ndarray, default = None
         Ranges for L parameters, required if using kwargs to plot densities
@@ -890,15 +892,15 @@ def plot_performance(
 
     Parameters
     ----------
-    plots_dir : string
+    plots_dir : str
         Directory to save plots
-    name : string
+    name : str
         File name to save plot
-    y_label : string
+    y_label : str
         Performance metric
     val : list
         Validation performance
-    log_y : boolean, default = True
+    log_y : bool, default = True
         If y-axis should be logged
     train : list, default = None
         Training performance
@@ -927,3 +929,36 @@ def plot_performance(
     legend = plt.legend(fontsize=MAJOR)
     legend.get_frame().set_alpha(None)
     plt.savefig(f'{plots_dir}{name}.png', transparent=False)
+
+
+def plot_saliency(plots_dir: str, data: ndarray, saliency: ndarray) -> None:
+    """
+    Plots the saliency and input for multiple saliency maps
+
+    Parameters
+    ----------
+    plots_dir : str
+        Directory to save plots
+    data : (H,W) ndarray
+        Input image of height H and width W
+    saliency : (C,H,W)
+        C saliency maps with height H and width W
+    """
+    _, axes = _init_plot(subplot_grid(saliency.shape[0] + 1))
+
+    for i, (datum, axis) in enumerate(zip(
+            np.concatenate((data[np.newaxis], saliency)),
+            axes.values(),
+    )):
+        maximum = np.max(np.abs(datum))
+        axis.imshow(
+            datum,
+            cmap='hot' if i == 0 else 'twilight',
+            vmin=0 if i == 0 else -maximum,
+            vmax=maximum,
+        )
+        axis.set_title('Input' if i == 0 else f'Dim {i}', fontsize=MAJOR)
+        axis.tick_params(labelbottom=False, bottom=False, labelleft=False, left=False)
+
+    plt.savefig(f'{plots_dir}Saliency.png')
+

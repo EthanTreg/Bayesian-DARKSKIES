@@ -1,6 +1,9 @@
 {
   "net": {
-    "checkpoints": 1
+    "checkpoints": true,
+    "Conv": {
+      "padding": "same"
+    }
   },
   "layers": [
     {

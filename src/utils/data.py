@@ -8,9 +8,8 @@ import numpy as np
 from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Subset
+from netloader.utils.utils import get_device
 from torchvision.transforms import v2
-
-from src.utils.utils import get_device
 
 
 class DarkDataset(Dataset):
@@ -39,100 +38,60 @@ class DarkDataset(Dataset):
     normalise()
         Normalises the labels
     """
-    def __init__(self, data_path: str, sims: list[str], unknown_sims: list[str]):
+    def __init__(self, data_dir: str, sims: list[str], unknown_sims: list[str]):
         """
         Parameters
         ----------
-        data_path : string
-            Path to the data file with the cluster dataset
+        data_dir : string
+            Path to the directory with the cluster datasets
         sims : list[string]
             Which simulations to load
         unknown_sims : list[string]
             Which sims from sims should be unknown, excluding zooms which are already unknown
         """
-        self.idxs = None
-        self.transform = (0, 1)
-        self.unknown = unknown_sims
-        log_0 = 4e-2
+        self.unknown: list[str] = unknown_sims
+        self.ids: ndarray = np.array([])
+        self.idxs: ndarray | None = None
+        self.images: ndarray | Tensor
+        self.labels: ndarray | Tensor = np.array([])
+        label: float
+        log_0: float = 4e-2
+        labels: dict[str, ndarray[float]]
+        images: ndarray
+        images_: list[ndarray] = []
 
-        # Load data from file
-        with open(data_path, 'rb') as file:
-            labels, images = pickle.load(file)
-
-        # Get specified sim data
-        idxs = np.in1d(labels['sim'], sims)
-
-        # Remove stellar maps & create labels & IDs
-        self.images = np.moveaxis(images[idxs, ..., :2], 3, 1)
-        del images
-        self.labels = labels['label'][idxs]
-        self.ids = labels['clusterID'][idxs].astype(int)
-
-        # Transform labels
-        if 'CDM_low+baryons' in sims:
-            self.labels[np.in1d(labels['sim'], 'CDM_low+baryons')[idxs]] = 0.99 * log_0
-
-        if 'CDM_hi+baryons' in sims:
-            self.labels[np.in1d(labels['sim'], 'CDM_hi+baryons')[idxs]] = 1.01 * log_0
-
-        if 'vdSIDM+baryons' in sims:
-            vd_idxs = np.in1d(labels['sim'], 'vdSIDM+baryons')[idxs]
-
-            for idx, sigma in zip(
-                    np.array_split(np.argsort(self.labels[vd_idxs]), 3),
-                    [1e-6, 1e-5, 1e-4],
-            ):
-                self.labels[np.flatnonzero(vd_idxs)[idx]] = sigma
-
-        for i, class_ in enumerate(self.unknown):
-            self.labels[np.in1d(labels['sim'], class_)[idxs]] = 10 ** -(i + 3)
-
-        if 'zooms' in sims:
-            with open('../data/zooms_2.pkl', 'rb') as file:
+        for sim in sims:
+            # Load data from file
+            with open(f"{data_dir}{sim.lower().replace('+', '_')}.pkl", 'rb') as file:
                 labels, images = pickle.load(file)
 
-            self.images = np.concatenate((self.images, images[:, :2]), axis=0)
-            # labels['label'][labels['label'] == 0.05] = 1e-2
-            labels['label'][labels['label'] == 0.1] *= 1.001
-            self.labels = np.concatenate((self.labels, labels['label']), axis=0)
-            self.ids = np.concatenate(
-                (self.ids, np.arange(len(images)) + np.max(self.ids) + 1),
-                axis=0,
-            )
-            # self.unknown.extend(['zooms_0.05'])
+            # Remove stellar maps & create labels
+            images_.append(images[:, :2])
+            label = labels['label'][0]
 
-        if 'flamingo' in sims:
-            with open('../data/flamingo.pkl', 'rb') as file:
-                labels, images = pickle.load(file)
+            # Ensure unknown labels are the smallest & there are no zero labels
+            if sim in self.unknown:
+                label = 1e-3
+            elif label == 0:
+                label = log_0
 
-            self.images = np.concatenate((self.images, images[:, :2]))
-            self.labels = np.concatenate((self.labels, np.ones(len(images)) * 1e-3))
-            self.ids = np.concatenate(
-                (self.ids, np.arange(len(images)) + np.max(self.ids) + 1),
-                axis=0,
-            )
-            self.unknown.extend(['flamingo'])
+            # Prevent duplicate labels
+            while label in np.unique(self.labels) and label != 0:
+                label *= 0.999
 
-        self.labels[self.labels == 0] = log_0
-        self.labels = np.log10(self.labels)
+            self.labels = np.concatenate((self.labels, np.ones(len(images)) * label))
 
-        # Metadata
-        # del labels['galaxy_catalogues']
-        # del labels['sim']
-        # del labels['clusterID']
-        # del labels['label']
-        # self.meta = torch.from_numpy(np.array(
-        #     list(labels.values()),
-        #     dtype=float,
-        # )).swapaxes(0, 1)[idxs]
-        # self.meta, self.meta_transform = data_normalisation(self.meta, axis=0)
+            # Create IDs
+            if 'ClusterID' in labels:
+                self.ids = np.concatenate((self.ids, labels['clusterID'].astype(int)))
+            else:
+                self.ids = np.concatenate((
+                    self.ids,
+                    np.arange(len(images)) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
+                ))
 
-        self.labels = torch.from_numpy(self.labels).float()[:, None]
-        self.images = torch.from_numpy(self.images).float()
-        # self.images = torch.cat((
-        #     self.images.reshape(len(self.images), -1),
-        #     self.meta.float(),
-        # ), dim=1)
+        self.images = np.concatenate(images_)
+        self.labels = self.labels[:, np.newaxis]
 
         # Image augmentations
         self.aug = v2.Compose([
@@ -144,7 +103,7 @@ class DarkDataset(Dataset):
     def __len__(self) -> int:
         return len(self.ids)
 
-    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[ndarray, ndarray | Tensor, ndarray | Tensor]:
         """
         Gets the training data for the given index
 
@@ -158,37 +117,7 @@ class DarkDataset(Dataset):
         tuple[ndarray, Tensor, Tensor, ndarray]
             Cluster ID, cluster label, and augmented image map
         """
-        # image = self.images[idx, :-self.meta.size(-1)]
-        # image = torch.cat((
-        #     self.aug(image.view(-1, 100, 100)).flatten(),
-        #     self.images[idx, -self.meta.size(-1):],
-        # ))
         return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
-
-    def normalise(self, idxs: list[int] | Tensor = None, transform: tuple[float, float] = None):
-        """
-        Normalises the labels
-
-        Parameters
-        ----------
-        idxs : list[integer] | (N) Tensor
-            Which indices should be normalised, where N is either the indices to keep, or equal to
-            the number of labels and is a boolean tensor
-        transform : tuple[float, float], default = None
-            Pre-defined transformation
-        """
-        if idxs is None:
-            self.labels, self.transform = data_normalisation(
-                self.labels,
-                mean=False,
-                transform=transform,
-            )
-        else:
-            self.labels[idxs], self.transform = data_normalisation(
-                self.labels[idxs],
-                mean=False,
-                transform=transform,
-            )
 
 
 class ClusterDataset(Dataset):
@@ -332,135 +261,6 @@ class GaussianDataset(Dataset):
             Image ID, label, image
         """
         return self.ids[idx], self.labels[idx], self.images[idx]
-
-
-def _ndarray_normalisation(
-        data: ndarray,
-        mean: bool = True,
-        axis: int = None,
-        transform: tuple[float, float] | tuple[ndarray, ndarray] = None,
-) -> tuple[ndarray, tuple[float, float] | tuple[ndarray, ndarray]]:
-    """
-    Transforms ndarray data either by normalising or
-    scaling between 0 & 1 depending on if mean is true or false.
-
-    Parameters
-    ----------
-    data : ndarray
-        Data to be normalised
-    mean : boolean, default = True
-        If data should be normalised or scaled between 0 and 1
-    axis : integer, default = None
-        Which axis to normalise over, if none, normalise over all axes
-    transform: tuple[float, float] | tuple[ndarray, ndarray], default = None
-        If transformation values exist already
-
-    Returns
-    -------
-    tuple[ndarray, tuple[float, float] | tuple[ndarray, ndarray]]
-        Transformed data & transform values
-    """
-    if len(np.unique(data)) == 1:
-        return data, transform or (0, 1)
-
-    if mean and not transform:
-        transform = [np.mean(data, axis=axis), np.std(data, axis=axis)]
-    elif not mean and not transform:
-        transform = [
-            np.min(data, axis=axis),
-            np.max(data, axis=axis) - np.min(data, axis=axis)
-        ]
-
-    if axis:
-        data = (data - np.expand_dims(transform[0], axis=axis)) /\
-               np.expand_dims(transform[1], axis=axis)
-    else:
-        data = (data - transform[0]) / transform[1]
-
-    return data, transform
-
-
-def _tensor_normalisation(
-        data: Tensor,
-        mean: bool = True,
-        dim: int = None,
-        transform: tuple[float, float] | tuple[Tensor, Tensor] = None,
-) -> tuple[Tensor, tuple[float, float] | tuple[Tensor, Tensor]]:
-    """
-    Transforms Tensor data either by normalising or
-    scaling between 0 & 1 depending on if mean is true or false.
-
-    Parameters
-    ----------
-    data : Tensor
-        Data to be normalised
-    mean : boolean, default = True
-        If data should be normalised or scaled between 0 and 1
-    dim : integer, default = None
-        Which dimension to normalise over, if none, normalise over all dimensions
-    transform: tuple[float, float] | tuple[Tensor, Tensor], default = None
-        If transformation values exist already
-
-    Returns
-    -------
-    tuple[Tensor, tuple[float, float] | tuple[Tensor, Tensor]]
-        Transformed data & transform values
-    """
-    if len(torch.unique(data)) == 1:
-        return data, transform or (0, 1)
-
-    if mean and not transform:
-        transform = [torch.mean(data, dim=dim), torch.std(data, dim=dim)]
-    elif not mean and not transform and dim:
-        transform = [
-            torch.min(data, dim=dim)[0],
-            torch.max(data, dim=dim)[0] - torch.min(data, dim=dim)[0]
-        ]
-    elif not mean and not transform:
-        transform = [torch.min(data).item(), torch.max(data).item() - torch.min(data).item()]
-
-    if dim:
-        data = (data - transform[0].unsqueeze(dim)) / transform[1].unsqueeze(dim)
-    else:
-        data = (data - transform[0]) / transform[1]
-
-    return data, transform
-
-
-def data_normalisation(
-        data: ndarray | Tensor,
-        mean: bool = True,
-        axis: int = None,
-        transform: tuple[float, float] = None,
-) -> tuple[ndarray | Tensor, tuple[float, float] | tuple[ndarray, ndarray] | tuple[Tensor, Tensor]]:
-    """
-    Transforms data either by normalising or
-    scaling between 0 & 1 depending on if mean is true or false.
-
-    Parameters
-    ----------
-    data : ndarray | Tensor
-        Data to be normalised
-    mean : boolean, default = True
-        If data should be normalised or scaled between 0 and 1
-    axis : integer, default = None
-        Which axis to normalise over, if none, normalise over all axes
-    transform: tuple[float, float], default = None
-        If transformation values exist already
-
-    Returns
-    -------
-    tuple[ndarray | Tensor, tuple[float, float] | tuple[ndarray, ndarray] | tuple[Tensor, Tensor]]
-        Transformed data & transform values
-    """
-    if isinstance(data, ndarray):
-        data, transform = _ndarray_normalisation(data, mean=mean, axis=axis, transform=transform)
-    elif isinstance(data, Tensor):
-        data, transform = _tensor_normalisation(data, mean=mean, dim=axis, transform=transform)
-    else:
-        raise TypeError(f'Type of {type(data)} for data not supported for data normalisation')
-
-    return data, transform
 
 
 def loader_init(

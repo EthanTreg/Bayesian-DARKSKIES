@@ -3,10 +3,11 @@ Runs several Gaussian training cycles with different cross-sections
 """
 import numpy as np
 import pandas as pd
+import netloader.networks as nets
 from torch.utils.data import DataLoader
 
-import src.networks as nets
-from src.main import net_init, summary
+from src.main import net_init
+from src.utils.analysis import summary
 from src.utils.utils import open_config
 from src.utils.data import GaussianDataset, loader_init
 

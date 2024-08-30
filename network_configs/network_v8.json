@@ -1,9 +1,6 @@
 {
   "net": {
-    "Checkpoints": 1,
-    "Conv": {
-      "dropout": 0.05
-    },
+    "checkpoints": 1,
     "Composite": {
       "name": "inception",
       "config_dir": "../network_configs/composite_layers/"
@@ -11,6 +8,9 @@
     "description": "Clustering"
   },
   "layers": [
+    {
+      "type": "Checkpoint"
+    },
     {
       "type": "Composite",
       "channels": 64
@@ -70,13 +70,13 @@
       "type": "Checkpoint"
     },
     {
-      "type": "OrderedBottleneck",
-      "min_size": 1
-    },
-    {
       "type": "Linear",
       "features": 7,
       "dropout": 0
+    },
+    {
+      "type": "OrderedBottleneck",
+      "min_size": 1
     },
     {
       "type": "Checkpoint"
