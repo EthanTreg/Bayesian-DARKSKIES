@@ -8,6 +8,7 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy import ndarray
+from matplotlib.collections import PathCollection
 
 
 def _interactive_check() -> bool:
@@ -31,7 +32,10 @@ def _interactive_check() -> bool:
     return False
 
 
-def legend_marker(colours: list[str], labels: list[str], markers: list[str] = None) -> ndarray:
+def legend_marker(
+        colours: list[str],
+        labels: list[str],
+        markers: list[str] | list[None] | None = None) -> ndarray:
     """
     Creates markers for a legend
 
@@ -49,36 +53,39 @@ def legend_marker(colours: list[str], labels: list[str], markers: list[str] = No
     ndarray
         Legend labels
     """
-    legend_labels = []
+    label: str
+    colour: str
+    marker: str | None
+    legend_labels: list[tuple[PathCollection, str]] = []
 
     if markers is None:
         markers = [None] * len(colours)
 
     for colour, label, marker in zip(colours, labels, markers):
-        legend_labels.append([plt.gca().scatter([], [], color=colour, marker=marker), label])
+        legend_labels.append((plt.gca().scatter([], [], color=colour, marker=marker), label))
 
     return np.array(legend_labels).swapaxes(0, 1)
 
 
 def name_sort(
-        names: list[ndarray, ndarray],
-        data: list[ndarray, ndarray],
-        shuffle: bool = True) -> tuple[list[ndarray, ndarray], list[ndarray, ndarray]]:
+        names: list[ndarray],
+        data: list[ndarray],
+        shuffle: bool = True) -> tuple[list[ndarray], list[ndarray]]:
     """
     Sorts names and data so that two arrays contain the same names
 
     Parameters
     ----------
-    names : list[ndarray, ndarray]
+    names : list[ndarray]
         Name arrays to sort
-    data : list[ndarray, ndarray]
+    data : list[ndarray]
         Data arrays to sort from corresponding name arrays
     shuffle : boolean, default = True
         If name and data arrays should be shuffled
 
     Returns
     -------
-    tuple[list[ndarray, ndarray], list[ndarray, ndarray]]
+    tuple[list[ndarray], list[ndarray]]
         Sorted name and data arrays
     """
     # Sort for longest dataset first

@@ -3,65 +3,64 @@ Optimises the hyperparameters of networks
 """
 import os
 import json
+import logging as log
 from time import time
+from typing import Any
 
 import torch
-import optuna
 import joblib
 import numpy as np
-from torch import optim
+import optuna.visualization as vis
+import optuna
+from torch import optim, nn
 from torch.utils.data import DataLoader
+from netloader.utils.utils import get_device
 from netloader.network import Network
+from netloader import layers
 from optuna import pruners
+from plotly.graph_objs import Figure
 
 from src.main import init
-from src.utils.utils import get_device, open_config
+from src.utils.utils import open_config
+from src.utils.clustering import CompactClusterEncoder
 
 
-def _update_net(
-        latent_dim: int,
-        latent_num: int,
-        class_num: int,
-        name: str,
-        nets_dir: str,
-        idxs: tuple[int, int]):
+def _save_plots(plots_dir: str, plots: list[Figure]) -> None:
+    with open(f'{plots_dir}optimisations.html', 'w') as file:
+        for i, plot in enumerate(plots):
+            file.write(plot.to_html(full_html=False, include_plotlyjs='cdn' if i == 0 else False))
+
+
+def _save_name(num: int, study_dir: str) -> str:
+    return f'{study_dir}study_{num}.pkl'
+
+
+def _update_net(idx: int, latent_dim: int, name: str, nets_dir: str) -> None:
     """
-    Updates the network configuration with latent dimension and optional layers between feature and
-    cluster latent spaces, and latent and classification latent spaces
+    Updates the network configuration with latent dimension
 
     Parameters
     ----------
-    latent_dim : integer
+    idx : int
+        Layer index for the latent space
+    latent_dim : int
         Dimension of the latent space
-    latent_num : integer
-        Number of linear layers between the feature and cluster latent space
-    class_num : integer
-        Number of linear layers between the cluster and classification latent spaces
-    name : string
+    name : str
         Name of the network
-    nets_dir : string
+    nets_dir : str
         Directory of network configurations
-    idxs : tuple[integer, integer]
-        Indices of the checkpoints for the feature and cluster latent spaces
     """
     with open(f'{nets_dir}{name}.json', 'r', encoding='utf-8') as file:
         net_config = json.load(file)
 
-    net_config['layers'][idxs[0] + 1]['features'] = latent_dim
-
-    for _ in range(class_num):
-        net_config['layers'].insert(idxs[1] + 1, {'type': 'linear', 'features': 64})
-
-    for _ in range(latent_num):
-        net_config['layers'].insert(idxs[0] + 1, {'type': 'linear', 'features': 256})
+    net_config['layers'][idx]['features'] = latent_dim
 
     with open('../data/optuna_config.json', 'w', encoding='utf-8') as file:
         json.dump(net_config, file)
 
 
 def _objective(
-        epochs: int,
-        idxs: tuple[int, int],
+        idx: int,
         loaders: tuple[DataLoader, DataLoader],
         trial: optuna.Trial) -> float:
     """
@@ -69,10 +68,8 @@ def _objective(
 
     Parameters
     ----------
-    epochs : integer
-        Number of epochs to train the network for
-    idxs : tuple[integer, integer]
-        Indices of the checkpoints for the feature and cluster latent spaces
+    idx : int
+        Layer index for the latent space
     loaders : tuple[DataLoader, DataLoader]
         Training and validation dataloaders
     trial : Trial
@@ -83,115 +80,164 @@ def _objective(
     float
         Performance metric of the trial
     """
-    device = get_device()[1]
-    net = torch.load('../data/base_net.pth')
-    _, config = open_config('main', '../config.yaml')
-    name = config['training']['network-name']
-    nets_dir = config['data']['network-configs-directory']
+    epochs: int
+    warmup: int
+    smooth: int
+    latent_dim: int
+    initial_time: float
+    cluster_loss: float
+    learning_rate: float
+    distance_loss: float
+    name: str
+    nets_dir: str
+    losses: list[float] = []
+    data: dict[str, np.ndarray]
+    config: dict[str, Any]
+    main_config: dict[str, Any]
+    net: CompactClusterEncoder
+    device: torch.device = get_device()[1]
+
+    _, main_config = open_config('main', '../config.yaml')
+    _, config = open_config('optimise', '../config.yaml')
+    name = main_config['training']['network-name']
+    nets_dir = main_config['data']['network-configs-directory']
+    epochs = config['optimisation']['epochs']
+    warmup = config['optimisation']['warmup']
+    smooth = config['optimisation']['smooth-number']
+    net = torch.load(config['output']['base-network'])
 
     # Latent dimension
-    latent_dim = trial.suggest_int('latent_dim', 1, 10)
+    latent_dim = trial.suggest_int('latent_dim', 2, 12)
 
     # Learning rate
-    learning_rate = trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True)
+    learning_rate = trial.suggest_float('learning_rate', 4e-4, 5e-3, log=True)
 
     # Loss weighting
-    cluster_loss = trial.suggest_float('cluster_loss', 1e-1, 10, log=True)
-    class_loss = trial.suggest_float('class_loss', 1e-1, 10, log=True)
-
-    # Linear layers
-    latent_num = trial.suggest_int('latent_layers', 0, 3)
-    class_num = trial.suggest_int('class_layers', 0, 3)
+    cluster_loss = trial.suggest_float('cluster_loss', 1, 15, log=True)
+    distance_loss = trial.suggest_float('distance_loss', 5e-2, 5, log=True)
 
     # Load network configuration file
-    _update_net(latent_dim, latent_num, class_num, name, nets_dir, idxs)
+    _update_net(idx, latent_dim, name, nets_dir)
 
     # Create network
     net.net = Network(
-        list(loaders[1].dataset.dataset[0][2].shape),
-        [len(torch.unique(loaders[1].dataset.dataset.labels))],
-        learning_rate,
         'optuna_config',
         '../data/',
-    ).to(device)
-    net.net.epoch = 0
-    net.net.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        net.net.optimiser,
-        factor=0.5,
-        mode='max',
-        verbose=True,
+        list(loaders[1].dataset.dataset[0][2].shape),
+        [len(torch.unique(loaders[1].dataset.dataset.labels))],
     )
+    net._epoch = 0
+    net.net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
+    net.optimiser = optim.AdamW(net.net.parameters(), lr=learning_rate)
+    net.scheduler = optim.lr_scheduler.ReduceLROnPlateau(net.optimiser, factor=0.5)
+    net.to(device)
 
     # Update network hyperparameters
+    net.class_loss = 1
     net.cluster_loss = cluster_loss
-    net.class_loss = class_loss
+    net.distance_loss = distance_loss
 
     # Train network
-    for i in range(net.net.epoch, epochs):
+    for i in range(net._epoch, epochs):
         initial_time = time()
 
         # Training
         net.train(True)
         net._train_val(loaders[0])
-        print(f'Epoch {i + 1}/{epochs}\tTraining time: {time() - initial_time:.1f}\t', end='')
+        print(f'Epoch {i + 1}/{epochs}\tTraining time: {time() - initial_time:.1f} s\t', end='')
 
         # Validation
-        _, targets, predicts, *_ = net.predict(loaders[1])
-        net.losses[1].append(np.count_nonzero(targets == predicts) / len(targets))
+        data = net.predict(loaders[1])
+        net.losses[1].append(np.count_nonzero(
+            data['targets'].squeeze() == data['preds']
+        ) / len(data['targets']))
+        print(f'Accuracy: {net.losses[1][-1]:.1%}')
 
         # Update
-        net.scheduler()
-        net.epoch()
-        trial.report(net.losses[1][-1], i)
+        net._update_scheduler(metrics=net.losses[1][-1])
+        net._update_epoch()
+        losses.append(float(np.mean(net.losses[1][-smooth:])))
+        trial.report(losses[-1], i)
 
         # Prune poor performing networks
-        if trial.should_prune() or (
-                net.net.epoch > 10 and net.losses[1][-1] < 1 / len(net.classes)
-        ):
+        if trial.should_prune() or (net._epoch > warmup and losses[-1] < 1 / len(net.classes)):
             raise optuna.TrialPruned()
 
         # End plateaued networks early
-        if len(net.losses[1]) > 20 and net.losses[1][-20] > net.losses[1][-1]:
-            return np.mean(net.losses[1][-5:])
+        if (net._epoch > net.scheduler.patience * 2 and
+                losses[-net.scheduler.patience * 2] > losses[-1]):
+            print('Trial plateaued, ending early...')
+            break
 
-    return np.mean(net.losses[1][-5:])
+    return losses[-1]
 
 
-def main():
+def main(config_path: str = '../config.yaml'):
     """
     Main function for network optimisation
-    """
-    load = True
-    epochs = 100
-    trials = 30
-    study_file = '../data/net_study.pkl'
-    check_idxs = []
-    loaders, net = init()
-    net.save_path = '../data/optuna_net.pth'
-    torch.save(net, '../data/base_net.pth')
 
-    # Find network checkpoints
-    for i, layer in enumerate(net.net.layers):
-        if layer['type'] == 'checkpoint':
-            check_idxs.append(i)
+    Parameters
+    ----------
+    config_path : string, default = '../config.yaml'
+        Path to the configuration file
+    """
+    _, config = open_config('optimise', config_path)
+
+    load = config['optimisation']['study-load']
+    save = config['optimisation']['study-save']
+    trials = config['optimisation']['trials']
+    warmup = config['optimisation']['warmup']
+    study_dir = config['data']['study-directory']
+    plots_dir = config['output']['plots-directory']
+
+    loaders, net, _ = init()
+    net.save_path = config['output']['network']
+    torch.save(net, config['output']['base-network'])
+
+    # Find the last checkpoint corresponding to the latent space
+    for idx, module in enumerate(net.net.net[::-1]):
+        if isinstance(module, layers.Checkpoint):
+            idx = len(net.net.net) - 2 - idx
+            break
 
     # Load existing study, or create new study
-    if load and os.path.exists(load):
-        study = joblib.load(study_file)
+    if load:
+        study = joblib.load(_save_name(load, study_dir))
     else:
+        if os.path.exists(_save_name(save, study_dir)):
+            log.getLogger(__name__).warning(f'{_save_name(save, study_dir)} already exists and '
+                                            f'will be overwritten if training continues')
+
         study = optuna.create_study(
-            study_name='Study 1',
+            study_name=f'Study {save}',
             direction='maximize',
-            pruner=pruners.PatientPruner(pruners.MedianPruner(n_warmup_steps=10), patience=2),
+            pruner=pruners.PatientPruner(pruners.MedianPruner(n_warmup_steps=warmup), patience=2),
         )
 
     # Trial different network configurations
-    for _ in range(trials):
+    for _ in range(len(study.trials), trials):
         study.optimize(
-            lambda trial: _objective(epochs, check_idxs[-2:], loaders, trial),
+            lambda trial: _objective(idx, loaders, trial),
             n_trials=1,
         )
-        joblib.dump(study, study_file)
+        joblib.dump(study, _save_name(save, study_dir))
+
+    _save_plots(plots_dir, [
+        vis.plot_optimization_history(study),
+        vis.plot_intermediate_values(study),
+        vis.plot_parallel_coordinate(study),
+        vis.plot_contour(study),
+        vis.plot_slice(study),
+        vis.plot_param_importances(study),
+        vis.plot_param_importances(
+            study,
+            target=lambda t: t.duration.total_seconds(),
+            target_name='duration',
+        ),
+        vis.plot_edf(study),
+        vis.plot_rank(study),
+        vis.plot_timeline(study),
+    ])
 
 
 if __name__ == '__main__':

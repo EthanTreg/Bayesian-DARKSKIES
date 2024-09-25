@@ -1,10 +1,13 @@
 {
   "net": {
-    "Checkpoints": 1,
+    "checkpoints": 1,
+    "description": "Clustering Further Reduced",
     "Conv": {
-      "dropout": 0.05
+      "dropout": 0.1
     },
-    "description": "Clustering Further Reduced"
+    "Linear": {
+      "dropout": 0.1
+    }
   },
   "layers": [
     {

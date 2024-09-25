@@ -5,11 +5,11 @@ import pickle
 
 import torch
 import numpy as np
-from numpy import ndarray
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Subset
 from netloader.utils.utils import get_device
 from torchvision.transforms import v2
+from numpy import ndarray, floating
 
 
 class DarkDataset(Dataset):
@@ -20,23 +20,16 @@ class DarkDataset(Dataset):
     ----------
     ids : ndarray
         IDs for each cluster in the dataset
+    sims : ndarray
+        Simulation ID for each cluster in the dataset
     labels : Tensor
         Supervised labels for dark matter cross-section for each cluster
     images : Tensor
         Lensing and X-ray maps for each cluster
-    meta : Tensor
-        Metadata for each cluster in the dataset
     aug : Compose
         Image augmentation transform
-    transform : tuple[float, float], default = (0, 1)
-        Label min and range for 0-1 normalisation
     idxs : ndarray, default = None
         Data indices for random training & validation datasets
-
-    Methods
-    -------
-    normalise()
-        Normalises the labels
     """
     def __init__(self, data_dir: str, sims: list[str], unknown_sims: list[str]):
         """
@@ -51,6 +44,7 @@ class DarkDataset(Dataset):
         """
         self.unknown: list[str] = unknown_sims
         self.ids: ndarray = np.array([])
+        self.sims: ndarray = np.array([])
         self.idxs: ndarray | None = None
         self.images: ndarray | Tensor
         self.labels: ndarray | Tensor = np.array([])
@@ -80,6 +74,7 @@ class DarkDataset(Dataset):
                 label *= 0.999
 
             self.labels = np.concatenate((self.labels, np.ones(len(images)) * label))
+            self.sims = np.concatenate((self.sims, [sim] * len(images)))
 
             # Create IDs
             if 'ClusterID' in labels:
@@ -206,8 +201,6 @@ class GaussianDataset(Dataset):
         Supervised labels for Gaussian centers
     images : Tensor
         Gaussian images
-    transform : tuple[float, float], default = (0, 1)
-        Label min and range for 0-1 normalisation
     idxs : ndarray, default = None
         Data indices for random training & validation datasets
     """
@@ -222,14 +215,21 @@ class GaussianDataset(Dataset):
         unknown : list[float]
             Known classes with unknown labels
         """
-        self.idxs = None
-        self.transform = (0, 1)
-        self.unknown = unknown
+        self.unknown: list[float] = unknown
+        self.ids: ndarray[np.int_]
+        self.idxs: ndarray[np.int_] | None = None
+        self.labels: ndarray[floating] | Tensor
+        self.images: ndarray[floating] | Tensor
+        i: int
+        class_: float
+        bad_idxs: ndarray[np.bool_]
+        labels: ndarray[floating]
+        images: ndarray[floating]
 
         with open(data_path, 'rb') as file:
             labels, images = pickle.load(file)
 
-        self.labels = labels
+        self.labels = np.round(labels, 5)
         self.images = images
 
         bad_idxs = ~np.in1d(self.labels, known + self.unknown)
@@ -240,14 +240,12 @@ class GaussianDataset(Dataset):
             self.labels[np.in1d(self.labels, class_)] = 10 ** -(i + 3)
 
         self.ids = np.arange(len(self.labels))
-        self.labels = np.log10(self.labels)
-        self.labels = torch.from_numpy(self.labels).float()[:, None]
-        self.images = torch.from_numpy(self.images).float()
+        self.labels = self.labels[:, np.newaxis]
 
     def __len__(self) -> int:
         return len(self.ids)
 
-    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[ndarray, ndarray | Tensor, ndarray | Tensor]:
         """
         Gets the training data for the given index
         Parameters
@@ -257,7 +255,7 @@ class GaussianDataset(Dataset):
 
         Returns
         -------
-        tuple[ndarray, Tensor, Tensor]
+        tuple[ndarray, ndarray | Tensor, ndarray | Tensor]
             Image ID, label, image
         """
         return self.ids[idx], self.labels[idx], self.images[idx]

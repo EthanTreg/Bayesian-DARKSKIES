@@ -1,74 +1,69 @@
 {
   "net": {
-    "2d": 1,
     "checkpoints": 1,
-    "convolutional": {
-      "dropout": 0.05
-    },
-    "description": "Clustering Reduced"
+    "description": "Clustering Reduced",
+    "Composite": {
+      "name": "inception",
+      "config_dir": "../network_configs/composite_layers/"
+    }
   },
   "layers": [
     {
-      "type": "composite",
-      "channels": 32,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 32
     },
     {
-      "type": "pool"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 64,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 64
     },
     {
-      "type": "pool"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 128,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 128
     },
     {
-      "type": "pool"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "pool"
+      "type": "Pool"
     },
     {
-      "type": "composite",
-      "channels": 256,
-      "config_path": "../network_configs/inception.json"
+      "type": "Composite",
+      "channels": 256
     },
     {
-      "type": "reshape",
-      "output": [-1]
+      "type": "Reshape",
+      "shape": [-1]
     },
     {
-      "type": "checkpoint"
+      "type": "Checkpoint"
     },
     {
-      "type": "linear",
+      "type": "Linear",
       "features": 1024
     },
     {
-      "type": "checkpoint"
+      "type": "Checkpoint"
     },
     {
-      "type": "linear",
-      "features": 3,
+      "type": "Linear",
+      "features": 4,
       "dropout": 0
     },
     {
-      "type": "checkpoint"
+      "type": "Checkpoint"
     },
     {
-      "type": "linear",
+      "type": "Linear",
       "factor": 1,
       "dropout": 0
     }

@@ -16,6 +16,88 @@ from netloader.network import Network
 from netloader import layers
 
 
+class CosineSimilarity(BaseNetwork):
+    """
+    Maximises the similarity/minimises latent space distance between inputs of the same class and
+    maximises the difference/minimises latent space distance between inputs of different classes
+
+    Attributes
+    ----------
+    save_path : str
+        Path to the network save file
+    optimiser : Optimizer
+        Network optimiser, uses AdamW optimiser
+    scheduler : LRScheduler
+        Optimiser scheduler, uses reduce learning rate on plateau
+    net : Module | Network
+        Neural network
+    margin : float, default = 0
+        Cosine threshold for similarity to be non-zero
+    description : str, default = ''
+        Description of the network
+    losses : tuple[list[float], list[float]], default = ([], [])
+        Network training and validation losses
+    header : dict[str, BaseTransform | None], default = {...: None, ...}
+        Keys for the output data from predict and corresponding transforms
+    idxs: (N) ndarray, default = None
+        Data indices for random training & validation datasets
+    in_transform : BaseTransform, default = None
+        Transformation for the input data
+    """
+    def __init__(
+            self,
+            save_num: int,
+            states_dir: str,
+            net: nn.Module | Network,
+            mix_precision: bool = False,
+            learning_rate: float = 1e-3,
+            description: str = '',
+            verbose: str = 'full',
+            transform: BaseTransform | None = None,
+            in_transform: BaseTransform | None = None):
+        super().__init__(
+            save_num,
+            states_dir,
+            net,
+            mix_precision=mix_precision,
+            learning_rate=learning_rate,
+            description=description,
+            verbose=verbose,
+            transform=transform,
+            in_transform=in_transform,
+        )
+        self.margin: float = 0
+        self.header['preds'] = None
+
+    def _loss(self, in_data: Tensor, target: Tensor) -> float:
+        """
+        Calculates the loss from the cosine similarity
+
+        Parameters
+        ----------
+        in_data : (N,...) Tensor
+            Input data of batch size N and the remaining dimensions depend on the network used
+        target : (N,1) Tensor
+            Class label for each output in the batch of size N
+
+        Returns
+        -------
+        float
+            Loss
+        """
+        output: Tensor = self.net(in_data)
+        loss: Tensor = nn.CosineSimilarity(dim=-1)(output[None], output[:, None])
+        idxs: Tensor
+
+        target = target.squeeze()
+        idxs = target[None] == target[:, None]
+        loss[idxs] = 1 - loss[idxs]
+        loss[~idxs] = torch.maximum(loss.new_tensor(0), loss[~idxs] - self.margin)
+        loss = torch.mean(loss)
+        self._update(loss)
+        return loss.item()
+
+
 class ClusterEncoder(BaseNetwork):
     """
     Clusters data into defined class and unknown classes based on cluster compactness, data distance
@@ -109,7 +191,7 @@ class ClusterEncoder(BaseNetwork):
         in_transform : BaseTransform, default = None
             Transformation for the input data
         """
-        net.scale: Tensor = nn.Parameter(torch.tensor((1.,), requires_grad=True))
+        net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
         super().__init__(
             save_num,
             states_dir,
@@ -282,7 +364,7 @@ class ClusterEncoder(BaseNetwork):
 
         # Similarity loss between distances in feature space and distances in latent space
         if self.sim_loss and torch.isin(target, self.classes[:self._unknown]).any():
-            idxs = target.flatten() == self.classes[:self._unknown]
+            idxs = torch.isin(target.flatten(), self.classes[:self._unknown])
             loss += self.sim_loss * nn.MSELoss()(
                 torch.cdist(latent[idxs, :1], latent[~idxs, :1]) / np.sqrt(latent.size(-1)),
                 torch.cdist(
@@ -446,9 +528,9 @@ class CompactClusterEncoder(ClusterEncoder):
         self._steps: int = steps
         self.sim_loss: float = 0  # Unused
         self.compact_loss: float = 0  # Unused
-        self.class_loss: float = 0.2
-        self.cluster_loss: float = 2.2
-        self.distance_loss: float = 2
+        self.class_loss: float = 0.1
+        self.cluster_loss: float = 1
+        self.distance_loss: float = 10
 
     def _label_propagation_cluster_loss(self, latent: Tensor, one_hot: Tensor) -> Tensor:
         """
@@ -553,10 +635,7 @@ class CompactClusterEncoder(ClusterEncoder):
             else:
                 batch_centers.append(torch.median(latent[label_idxs, 0]))
 
-        return nn.MSELoss()(
-            self.net.scale * torch.stack(batch_centers),
-            batch_classes,
-        )
+        return nn.MSELoss()(torch.stack(batch_centers), batch_classes)
 
     def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """

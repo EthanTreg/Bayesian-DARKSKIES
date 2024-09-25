@@ -88,14 +88,14 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     # Initialise datasets
     dataset.images = transform(dataset.images)
     dataset.labels = param_transform(dataset.labels)
-    net.classes = torch.unique(dataset.labels)
     net.encoder_loss = 1
     return net.to(device)
 
 
 def init(config: dict | str = '../config.yaml') -> tuple[
         tuple[DataLoader, DataLoader],
-        nets.BaseNetwork]:
+        nets.BaseNetwork,
+        DarkDataset]:
     """
     Initialises the network and dataloaders
 
@@ -118,7 +118,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     data_dir = config['data']['data-dir']
 
     # Fetch dataset & network
-    unknown = ['zooms0.05']
+    unknown = ['zooms0.05', 'zooms0.1', 'zooms0.2']
     dataset = DarkDataset(
         data_dir,
         [
@@ -128,9 +128,11 @@ def init(config: dict | str = '../config.yaml') -> tuple[
             'SIDM0.1+baryons',
             'SIDM0.3+baryons',
             'SIDM1+baryons',
-            'zooms0.05',
+            'zooms0.2',
             'zooms0.1',
-            # 'flamingo',
+            'zooms0.05',
+            'zooms0.01',
+            'flamingo',
             # 'vdSIDM+baryons',
         ],
         unknown,
@@ -140,7 +142,7 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     # Initialise data loaders
     loaders = loader_init(dataset, batch_size=batch_size, val_frac=val_frac, idxs=net.idxs)
     net.idxs = dataset.idxs
-    return loaders, net
+    return loaders, net, dataset
 
 
 def main(config_path: str = '../config.yaml'):
@@ -158,6 +160,19 @@ def main(config_path: str = '../config.yaml'):
     labels = config['training']['class-labels']
     states_dir = config['output']['network-states-directory']
     plots_dir = config['output']['plots-directory']
+    colours = [
+        '#5D00FA',
+        '#FA00ED',
+        '#B000F9',
+        '#0B00FA',
+        '#76F018',
+        # '#1CEDCC',
+        '#1C88ED',
+        # '#1CCAED',
+        '#F01F31',
+        '#F0631F',
+        '#FA0057',
+    ]
 
     # Create plots directory
     if not os.path.exists(plots_dir):
@@ -168,7 +183,7 @@ def main(config_path: str = '../config.yaml'):
         os.makedirs(states_dir)
 
     # Initialise network
-    loaders, net = init(config)
+    loaders, net, _ = init(config)
 
     # Train network
     net.training(net_epochs, loaders)
@@ -188,16 +203,28 @@ def main(config_path: str = '../config.yaml'):
     data['targets'] = data['targets'].squeeze()
 
     # Plot predictions
+    # plots.plot_distributions(
+    #     plots_dir,
+    #     'Encoder Predictions',
+    #     distributions,
+    #     y_axis=False,
+    #     num_plots=len(distributions),
+    #     titles=labels,
+    #     data_twin=np.unique(data['targets']),
+    #     data_range=(np.min(data['preds']), np.max(data['preds'])),
+    # )
     plots.plot_clusters(
         f'{plots_dir}PCA',
+        PCA(n_components=2).fit_transform(data['latent']),
         data['targets'],
-        PCA(n_components=4).fit_transform(data['latent']),
+        colours=colours,
         labels=labels,
+        # hatches=['-'] * 4 + ['/'] + ['\\'] * 3 + ['|'] * 3
     )
     plots.plot_clusters(
         f'{plots_dir}Clusters',
-        data['targets'],
         data['latent'],
+        data['targets'],
         labels=labels,
         predictions=data['preds'],
     )
@@ -218,10 +245,12 @@ def main(config_path: str = '../config.yaml'):
 
     pd.set_option('display.max_columns', 20)
     pd.set_option('display.width', 500)
-    data['latent'][:, 0] = net.header['targets'](data['latent'][:, 0], back=True)
+    meds, means, stes = summary(data)[:3]
+    meds = net.header['targets'](meds, back=True)
+    means, stes = net.header['targets'](means, back=True, uncertainty=stes)
     print(pd.DataFrame(
-        summary(data)[:3],
-        index=['Medians', 'Means', 'Stds'],
+        [meds, means, stes],
+        index=['Medians', 'Means', 'STEs'],
         columns=[label.replace(r'\sigma=', '').replace('$', '') for label in labels],
     ).round(3))
 

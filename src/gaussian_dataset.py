@@ -4,8 +4,7 @@ Generates Gaussian images with different radii
 import pickle
 
 import numpy as np
-
-from src.utils.utils import progress_bar
+from netloader.utils.utils import progress_bar
 
 
 def main(radii: np.ndarray = None):
@@ -20,15 +19,15 @@ def main(radii: np.ndarray = None):
     num = int(3e3)
     min_counts = 200
     count_density = int(5e3)
-    std = 0.6
+    std = 0.1
     mu_std = 5e-1
     data = []
     ranges = []
-    image_shape = [2, 100, 100]
+    image_shape = [1, 100, 100]
 
     if radii is None:
         # radii = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1])
-        radii = np.linspace(0.1, 1, )
+        radii = np.concatenate(([0.05], np.linspace(0.1, 1, 10), [1.05]))
 
     # Initialise date
     centers = np.random.normal(0, mu_std, size=[len(radii), num, 1, 2])
@@ -63,7 +62,6 @@ def main(radii: np.ndarray = None):
         ), axis=-1)
 
         np.add.at(images[i, :, 0], tuple([*idxs.swapaxes(0, 1)]), 1)
-        images[..., 1] = images[..., 0]
         progress_bar(i, len(data))
 
     # Generate labels and normalise images
@@ -73,7 +71,7 @@ def main(radii: np.ndarray = None):
 
     # Save data
     print('Saving...')
-    with open('../data/gaussian_data_2.pkl', 'wb') as file:
+    with open('../data/gaussian_data_3_less_noise.pkl', 'wb') as file:
         pickle.dump((labels, images), file)
 
 
