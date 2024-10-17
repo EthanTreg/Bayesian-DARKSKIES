@@ -80,7 +80,7 @@ def _update_net(idx: int, latent_dim: int, name: str, nets_dir: str) -> None:
 
     net_config['layers'][idx]['features'] = latent_dim
 
-    with open('../data/optuna_config.json', 'w', encoding='utf-8') as file:
+    with open(f'{nets_dir}optuna_config.json', 'w', encoding='utf-8') as file:
         json.dump(net_config, file)
 
 

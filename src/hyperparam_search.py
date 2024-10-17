@@ -23,7 +23,8 @@ from src.utils.clustering import CompactClusterEncoder
 def _objective(
         idx: int,
         latent_dim: int,
-        loaders: tuple[DataLoader, DataLoader]) -> tuple[float, float, CompactClusterEncoder]:
+        loaders: tuple[DataLoader, DataLoader],
+        config_path: str = '../config.yaml') -> tuple[float, float, CompactClusterEncoder]:
     """
     Optuna objective to pick hyperparameters and train the network
 
@@ -35,6 +36,8 @@ def _objective(
         Dimensions of the latent space
     loaders : tuple[DataLoader, DataLoader]
         Training and validation dataloaders
+    config_path : str, default = '../config.yaml'
+        Path to the configuration file
 
     Returns
     -------
@@ -54,8 +57,8 @@ def _objective(
     device: torch.device = get_device()[1]
     net: CompactClusterEncoder
 
-    _, main_config = open_config('main', '../config.yaml')
-    _, config = open_config('optimise', '../config.yaml')
+    _, main_config = open_config('main', config_path)
+    _, config = open_config('optimise', config_path)
     nets_dir = main_config['data']['network-configs-directory']
     epochs = config['optimisation']['epochs']
     smooth = config['optimisation']['smooth-number']
@@ -69,7 +72,7 @@ def _objective(
     # Create network
     net.net = Network(
         'optuna_config',
-        '../data/',
+        nets_dir,
         list(loaders[1].dataset.dataset[0][2].shape),
         [len(torch.unique(loaders[1].dataset.dataset.labels))],
     )
@@ -122,7 +125,7 @@ def main(config_path: str = '../config.yaml') -> None:
 
     Parameters
     ----------
-    config_path : str, default = '../config.yaml
+    config_path : str, default = '../config.yaml'
         Path to the configuration file
     """
     i: int
