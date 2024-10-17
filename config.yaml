@@ -98,6 +98,10 @@ optimise:
     epochs: 100
     # Number of trials to run
     trials: 50
+    # File number to save the network progres
+    network-save: 0
+    # File number to load the network state
+    network-load: 0
     # File number to save the study progres
     study-save: 6
     # File number to load the study state
@@ -113,7 +117,7 @@ optimise:
   # File locations for optimisation
   data:
     # Path to the directory for studies
-    study-directory: '../data/'
+    study-directory: *data_dir
   # Paths and directory locations for saving outputs
   output:
     # Path to save the base network object
