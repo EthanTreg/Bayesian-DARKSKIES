@@ -16,4 +16,4 @@ SciencePlots~=2.1.1
 torch~=2.4.0
 torchvision~=0.19.0
 
-netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@v3.2.4
+netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@d0e67b8

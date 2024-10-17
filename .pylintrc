@@ -1,6 +1,7 @@
 [MASTER]
 ignore-patterns=(.)*_test\.py,test_(.)*\.py,test.py
 init-hook="import sys; sys.path.append('.')"
+no-docstring-rgx=^__
 
 [BASIC]
 good-names=i, j, k, y
@@ -13,3 +14,11 @@ ignored-classes=HDUList,mpi4py.MPI,Dataset
 
 [pylint.FORMAT]
 disable=logging-fstring-interpolation
+
+[MESSAGES CONTROL]
+disable=too-few-public-methods,import-error
+
+[DESIGN]
+max-args=10
+max-locals=25
+max-attributes=11

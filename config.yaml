@@ -7,6 +7,7 @@ global-variables:
     - &network_configs_directory '../network_configs/'
     # File name for the network model to load
     - &network_name 'network_v8'
+    - &reduced_network 'network_v10'
   data-variables:
     # Path to the images with lensing and X-ray maps and parameters
     - &data_dir '../data/'
@@ -21,35 +22,35 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    network-epochs: 200
+    epochs: 150
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
     network-save: 0
     # File number to load the network state
-    network-load: 19
+    network-load: 1002
     # Learning rate for training the network
-    network-learning-rate: 1.0e-4
+    learning-rate: 1.0e-4
     # Validation dataset fraction
     validation-fraction: 0.15
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Zoom0.01 known'
+    network-description: 'Linear'
     # Labels for the classes
     class-labels:
 #      - 'VD Low'
 #      - 'VD Mid'
 #      - 'VD High'
 #      - 'Zoom 0.05'
-      - 'DARKSKIES-0.05'
+#      - 'DARKSKIES-0.01'
+#      - 'DARKSKIES-0.05'
 #      - 'Zoom 0.1'
-      - 'DARKSKIES-0.1'
+#      - 'DARKSKIES-0.1'
 #      - 'Zoom 0.2'
-      - 'DARKSKIES-0.2'
+#      - 'DARKSKIES-0.2'
 #      - 'Zoom 0.01'
-      - 'DARKSKIES-0.01'
-      - 'Flamingo-0'
+#      - 'Flamingo-0'
 #      - 'CDM Low'
 #      - 'CDM'
       - 'BAHAMAS-0'
@@ -57,9 +58,10 @@ main:
 #      - '$\sigma=0.1$'
       - 'BAHAMAS-0.1'
 #      - '$\sigma=0.3$'
-      - 'BAHAMAS-0.3'
+      - 'BAHAMAS-0.3 (Unknown)'
 #      - '$\sigma=1$'
       - 'BAHAMAS-1'
+#      - 'BAHAMAS-VD (Unknown)'
 #      - '0.05'
 #      - '0.1'
 #      - '0.2'
@@ -97,13 +99,17 @@ optimise:
     # Number of trials to run
     trials: 50
     # File number to save the study progres
-    study-save: 0
+    study-save: 6
     # File number to load the study state
-    study-load: 2
+    study-load: 0
     # Number of epochs before pruning can occur
     warmup: 10
     # Number of epochs to average over when reporting metrics
     smooth-number: 5
+    # Learning rate for training the network
+    learning-rate: 1.0e-3
+    # File name for network model to load
+    network-name: *reduced_network
   # File locations for optimisation
   data:
     # Path to the directory for studies

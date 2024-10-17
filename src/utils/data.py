@@ -2,6 +2,7 @@
 Loads data and creates data loaders for network training
 """
 import pickle
+from typing import BinaryIO
 
 import torch
 import numpy as np
@@ -38,23 +39,25 @@ class DarkDataset(Dataset):
         data_dir : string
             Path to the directory with the cluster datasets
         sims : list[string]
-            Which simulations to load
+            Which simulations to load that are known
         unknown_sims : list[string]
-            Which sims from sims should be unknown, excluding zooms which are already unknown
+            Which simulations to load that are unknown
         """
         self.unknown: list[str] = unknown_sims
         self.ids: ndarray = np.array([])
         self.sims: ndarray = np.array([])
+        self.stellar_frac: ndarray = np.array([])
         self.idxs: ndarray | None = None
         self.images: ndarray | Tensor
         self.labels: ndarray | Tensor = np.array([])
         label: float
         log_0: float = 4e-2
-        labels: dict[str, ndarray[float]]
-        images: ndarray
+        labels: dict[str, ndarray | list[float]]
         images_: list[ndarray] = []
+        file: BinaryIO
+        images: ndarray
 
-        for sim in sims:
+        for sim in np.unique(sims + self.unknown):
             # Load data from file
             with open(f"{data_dir}{sim.lower().replace('+', '_')}.pkl", 'rb') as file:
                 labels, images = pickle.load(file)
@@ -74,6 +77,7 @@ class DarkDataset(Dataset):
                 label *= 0.999
 
             self.labels = np.concatenate((self.labels, np.ones(len(images)) * label))
+            # self.labels = np.concatenate((self.labels, labels['label']))
             self.sims = np.concatenate((self.sims, [sim] * len(images)))
 
             # Create IDs
@@ -84,6 +88,25 @@ class DarkDataset(Dataset):
                     self.ids,
                     np.arange(len(images)) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
                 ))
+
+            # if 'props' in labels and 'SO_Mass_500_rhocrit' in labels['props']:
+            if images.shape[1] == 3:
+                mask = np.where(np.add(*[array ** 2 for array in np.meshgrid(
+                    np.arange(images.shape[-2]) - images.shape[-2] // 2 + 0.5,
+                    np.arange(images.shape[-1]) - images.shape[-1] // 2 + 0.5,
+                )]) < 25, 1, 0)
+                # self.stellar_frac = np.concatenate((
+                #     self.stellar_frac,
+                #     np.array(labels['props']['SO_Mass_star_500_rhocrit']) /
+                #     np.array(labels['props']['SO_Mass_500_rhocrit']),
+                # ))
+                self.stellar_frac = np.concatenate((
+                    self.stellar_frac,
+                    (np.sum(images[:, -1] * mask, axis=(-2, -1)) /
+                     np.sum(images[:, 0] * mask, axis=(-2, -1))),
+                ))
+            else:
+                self.stellar_frac = np.concatenate((self.stellar_frac, np.zeros(len(images))))
 
         self.images = np.concatenate(images_)
         self.labels = self.labels[:, np.newaxis]

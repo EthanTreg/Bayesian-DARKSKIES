@@ -2,7 +2,7 @@
 Creates several plots
 """
 import logging
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import scienceplots
@@ -13,13 +13,15 @@ from matplotlib.lines import Line2D
 from matplotlib.legend import Legend
 from matplotlib.figure import FigureBase
 from matplotlib.colors import XKCD_COLORS
-from scipy.stats import gaussian_kde
-from scipy.optimize import minimize
-from numpy import ndarray, floating
-from netloader.utils.utils import label_change
+from matplotlib.collections import PathCollection
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from netloader.utils.utils import label_change
+from scipy.stats import gaussian_kde
+from numpy import ndarray, floating
 
-from src.utils.utils import legend_marker, subplot_grid
+from src.plots.utils import subplot_grid, contour_sig
+
+plt.style.use(["science", "grid", 'no-latex'])
 
 MAJOR: int = 24
 MINOR: int = 20
@@ -31,7 +33,6 @@ RECTANGLE: tuple[int, int] = (16, 9)
 SQUARE: tuple[int, int] = (10, 10)
 HI_RES: tuple[int, int] = (32, 18)
 HI_RES_SQUARE: tuple[int, int] = (20, 20)
-plt.style.use(["science", "grid", 'no-latex'])
 
 
 def _init_plot(
@@ -42,23 +43,23 @@ def _init_plot(
         subfigures: tuple[int, int] | None = None,
         **kwargs: Any) -> tuple[FigureBase, ndarray[FigureBase] | None]:
     """
-    Initialises subplots using either mosaic or subplots
+    Initialises main figure and optionally subfigures
 
     Parameters
     ----------
-    subplots : str | tuple[int, int] | list | ndarray
-        Argument for subplot or mosaic layout, mosaic will use str or list
-        and subplots will use tuple
-    legend : bool, default = False,
-        If the figure will have a legend at the top, then space will be made
-    x_label : str, default = None
-        X label for the plot
-    y_label : str, default = None
-        Y label for the plot
+    titles : str | list[str], default = None
+        Title for the plot or a title for each sub figure
+    x_labels : str, default = None
+        X label for the plot or x labels for each sub figure
+    y_labels : str, default = None
+        Y label for the plot or y labels for each sub figure
     fig_size : tuple[int, int]
         Size of the figure
+    subfigures : tuple[int, int], default = None
+        Number of rows and columns for the sub figures if not None
+
     **kwargs
-        Optional arguments for the subplot or mosaic function
+        Optional arguments for the subfigures function
 
     Returns
     -------
@@ -98,9 +99,10 @@ def _init_plot(
 
 def _init_subplots(
         subplots: str | tuple[int, int] | list | ndarray,
-        fig: FigureBase | None = None,
+        titles: list[str] | None = None,
         fig_size: tuple[int, int] = RECTANGLE,
-        **kwargs: Any) -> tuple[dict[str, Axes] | ndarray[Axes], FigureBase]:
+        fig: FigureBase | None = None,
+        **kwargs: Any) -> tuple[dict[int | str, Axes] | ndarray[Axes], FigureBase]:
     """
     Generates subplots within a figure or sub-figure
 
@@ -108,20 +110,24 @@ def _init_subplots(
     ----------
     subplots : str | tuple[int, int] | list | ndarray
         Parameters for subplots or subplot_mosaic
-    fig : FigureBase | None, default = None
-        FigureBase to add subplots to
+    titles : list[str], default = None
+        Titles for each axis
     fig_size : tuple[int, int]
         Size of the figure, only used if fig is None
+    fig : FigureBase | None, default = None
+        FigureBase to add subplots to
 
     **kwargs
         Optional kwargs to pass to subplots or subplot_mosaic
 
     Returns
     -------
-    tuple[dict[str, Axes] | ndarray[Axes], FigureBase]
+    tuple[dict[int | str, Axes] | ndarray[Axes], FigureBase]
         Dictionary or array of subplot axes and figure
     """
-    axes: dict[str, Axes] | ndarray[Axes]
+    title: str
+    axes: dict[int | str, Axes] | ndarray[Axes]
+    axis: Axes
 
     if fig is None:
         fig = plt.figure(constrained_layout=True, figsize=fig_size)
@@ -132,11 +138,18 @@ def _init_subplots(
     else:
         axes = fig.subplot_mosaic(subplots, **kwargs)
 
+    if titles is not None:
+        for title, axis in zip(
+                titles,
+                axes.flatten() if isinstance(axes, ndarray) else axes.values(),
+        ):
+            axis.set_title(title, fontsize=MAJOR)
+
     return axes, fig
 
 
 def _legend(
-        labels: list[str] | ndarray,
+        labels: ndarray,
         fig: FigureBase,
         columns: int = 2,
         loc: str | tuple[float, float] = 'outside upper center') -> Legend:
@@ -185,6 +198,8 @@ def _legend(
             borderaxespad=0.2,
         )
 
+    legend.get_frame().set_boxstyle('Square', pad=0)
+
     for handle in legend.legend_handles:
         handle.set_alpha(1)
 
@@ -194,27 +209,39 @@ def _legend(
     return legend
 
 
-def _contour_sig(counts: float, contour: ndarray[floating]) -> float:
+def _legend_marker(
+        colours: list[str],
+        labels: list[str],
+        markers: list[str] | list[None] | ndarray | None = None) -> ndarray:
     """
-    Finds the level that includes the required counts in a contour
+    Creates markers for a legend
 
     Parameters
     ----------
-    counts : float
-        Target amount for level to include
-    contour : ndarray[floating]
-        Contour to find the level that gives the target counts
+    colours : list[string]
+        Colours for the legend
+    labels : list[string]
+        Labels for the legend
+    markers : list[string], default = None
+        Markers for the legend
 
     Returns
     -------
-    float
-        Level
+    ndarray
+        Legend labels
     """
-    return minimize(
-        lambda x: np.abs(np.sum(contour[contour > x]) / counts - 1),
-        0,
-        method='nelder-mead',
-    )['x'][0]
+    label: str
+    colour: str
+    marker: str | None
+    legend_labels: list[tuple[PathCollection, str]] = []
+
+    if markers is None:
+        markers = [None] * len(colours)
+
+    for colour, label, marker in zip(colours, labels, markers):
+        legend_labels.append((plt.gca().scatter([], [], color=colour, marker=marker), label))
+
+    return np.array(legend_labels).swapaxes(0, 1)
 
 
 def _plot_clusters_2d(
@@ -425,7 +452,7 @@ def _plot_density(
         confidences = [0.68]
 
     for confidence in confidences:
-        levels.insert(0, _contour_sig(total * confidence, contour))
+        levels.insert(0, contour_sig(total * confidence, contour))
 
     if levels[-1] == 0:
         logger.warning('Cannot calculate contours, skipping')
@@ -489,7 +516,7 @@ def _plot_histogram(
         density: bool = False,
         bin_num: int = 100,
         alpha: float | None = None,
-        colour: str = 'blue',
+        colour: str = COLOURS[0],
         hatch: str | None = None,
         labels: str | list[str] | list[None] | None = None,
         data_range: tuple[float, float] | None = None,
@@ -512,7 +539,7 @@ def _plot_histogram(
         Number of bin_num
     alpha : float, default = 0.2 if density, 0.5 if data_twin is provided; otherwise, 1
         Transparency of the histogram, gets halved if data_twin is provided
-    colour : str
+    colour : str, default = COLOURS[0]
         Colour of the histogram or density plot
     labels : list[str], default = None
         Labels for data and, if provided, data_twin
@@ -546,14 +573,11 @@ def _plot_histogram(
     else:
         alpha = 0.5
 
-    if 'cmap' in kwargs:
-        del kwargs['cmap']
-
     if log:
-        bins = np.logspace(np.log10(np.min(data)), np.log10(np.max(data)), bin_num)
+        bins = np.logspace(*np.log10(data_range), bin_num)
         axis.set_xscale('log')
 
-    if density:
+    if density and len(np.unique(data)) > 1:
         kernel = gaussian_kde(data)
         x_data = np.linspace(*data_range, bin_num)
         y_data = kernel(x_data)
@@ -588,13 +612,103 @@ def _plot_histogram(
             density=density,
             bin_num=bin_num,
             alpha=alpha,
-            colour='orange',
+            colour=COLOURS[1],
             hatch=hatch,
             labels=[labels[1]],
+            data_range=data_range,
             **kwargs,
         )
         return twin_axis
     return None
+
+
+def _plot_histogram2(
+        data: ndarray[floating],
+        axis: Axes,
+        log: bool = False,
+        density: bool = False,
+        bin_num: int = 100,
+        alpha: float | None = None,
+        colour: str = COLOURS[0],
+        hatch: str | None = None,
+        data_range: tuple[float, float] | None = None,
+        **kwargs: Any) -> None:
+    """
+    Plots a histogram subplot with twin data if provided
+
+    Parameters
+    ----------
+    data : ndarray[floating]
+        Primary data to plot
+    axis : Axes
+        Axis to plot on
+    log : bool, default = False
+        If data should be plotted on a log scale, expects linear data
+    density : bool, default = False
+        If histogram should be plotted as a kernel density estimation
+    bin_num : int, default = 100
+        Number of bin_num
+    alpha : float, default = 0.2 if density, 0.5 if data_twin is provided; otherwise, 1
+        Transparency of the histogram, gets halved if data_twin is provided
+    colour : str, default = COLOURS[0]
+        Colour of the histogram or density plot
+    labels : list[str], default = None
+        Labels for data and, if provided, data_twin
+    data_range : tuple[float, float], default = None
+        x-axis data range, required if density is True
+    data_twin : ndarray[floating], default = None
+        Secondary data to plot
+
+    **kwargs
+        Optional keyword arguments that get passed to Axes.plot and Axes.fill_between if density is
+        True, else to Axes.hist
+
+    Returns
+    -------
+    None | Axes
+        If data_twin is provided, returns twin axis
+    """
+    bins: int | ndarray = bin_num
+    x_data: ndarray
+    y_data: ndarray
+    kernel: gaussian_kde
+
+    if alpha is None and density:
+        alpha = 0.2
+    else:
+        alpha = 0.5
+
+    if log:
+        bins = np.logspace(*np.log10(data_range), bin_num)
+        axis.set_xscale('log')
+
+    if density and len(np.unique(data)) > 1:
+        kernel = gaussian_kde(data)
+        x_data = np.linspace(*data_range, bin_num)
+        y_data = kernel(x_data)
+
+        if 'orientation' in kwargs and kwargs['orientation'] == 'horizontal':
+            del kwargs['orientation']
+            axis.plot(y_data, x_data, label=labels[0], color=colour, **kwargs)
+            axis.fill_betweenx(x_data, y_data, alpha=alpha, color=colour, hatch=hatch, **kwargs)
+        else:
+            axis.plot(x_data, y_data, label=labels[0], color=colour, **kwargs)
+            axis.fill_between(x_data, y_data, alpha=alpha, color=colour, hatch=hatch, **kwargs)
+    else:
+        y_data, x_data = np.histogram(data, bins)
+        y_data = y_data / np.max(y_data)
+        axis.bar(
+            x_data[:-1],
+            y_data,
+            align='edge',
+            width=np.diff(x_data),
+            alpha=alpha,
+            color=colour,
+            **kwargs,
+        )
+
+    axis.tick_params(labelsize=MINOR)
+    axis.ticklabel_format(axis='y', scilimits=(-2, 2))
 
 
 def _plot_reconstruction(
@@ -684,9 +798,11 @@ def _plot_reconstruction(
                 alpha=0.1,
             )
 
+    # axis.locator_params(axis='y', nbins=4)
     axis.tick_params(axis='both', labelsize=MINOR)
     axis.set_ylabel('Residual', fontsize=MAJOR)
     axis.hlines(0, xmin=np.min(x_data), xmax=np.max(x_data), color='k')
+    # major_axis.locator_params(axis='y', nbins=4)
     major_axis.tick_params(axis='y', labelsize=MINOR)
     major_axis.set_xticks([])
     return major_axis
@@ -729,7 +845,6 @@ def plot_clusters(
     predictions : N ndarray[floating], default = None
         Class predicted labels
     """
-    columns: int
     class_: float
     pad: float = 0.05
     colour: str
@@ -753,8 +868,6 @@ def plot_clusters(
     if hatches is None:
         hatches = [None] * np.unique(classes).size
 
-    columns = len(labels)
-
     if data.shape[1] == 1:
         fig = plt.figure(figsize=RECTANGLE, constrained_layout=True)
     elif data.shape[1] == 2:
@@ -768,7 +881,6 @@ def plot_clusters(
         axes[0, 1].remove()
         axes[0, 0].tick_params(bottom=False)
         axes[1, 1].tick_params(left=False)
-        axis = axes[1, 0]
     elif data.shape[1] == 3 and plot_3d:
         fig = plt.figure(figsize=SQUARE, constrained_layout=True)
         axis = fig.add_subplot(projection='3d')
@@ -780,9 +892,9 @@ def plot_clusters(
         axes, fig = _init_subplots((data.shape[1],) * 2, fig_size=HI_RES, sharex='col')
 
     if labels[0] is not None:
-        legend_labels = legend_marker(colours, labels, None if predictions is None else MARKERS)
+        legend_labels = _legend_marker(colours, labels, None if predictions is None else MARKERS)
     else:
-        legend_labels = legend_marker(colours, labels)
+        legend_labels = _legend_marker(colours, labels)
 
     # Plot each cluster class
     for class_, colour, hatch, label in zip(np.unique(classes), colours, hatches, labels):
@@ -832,16 +944,16 @@ def plot_clusters(
         else:
             plot_param_pairs(
                 class_data,
+                density=density,
                 ranges=ranges,
                 axes=axes,
-                density=density,
                 bin_num=bin_num,
                 colour=colour,
                 hatch=hatch,
             )
 
     if data.shape[1] > 1 and labels[0] is not None:
-        _legend(legend_labels, fig, columns=columns)
+        _legend(legend_labels, fig, columns=len(labels))
 
     plt.savefig(f'{path}.png')
 
@@ -902,12 +1014,17 @@ def plot_distributions(
         plots_dir: str,
         name: str,
         data: list[ndarray[floating]] | ndarray[floating],
+        log: bool = False,
         y_axis: bool = True,
         num_plots: int = 12,
+        x_label: str | None = None,
+        text_loc: str = 'upper right',
+        titles: list[str] | None = None,
         labels: list[str] | list[None] | None = None,
-        titles: list[str] | list[None] | None = None,
+        texts: list[str] | list[None] | None = None,
         data_twin: list[ndarray[floating] | None] | ndarray[floating] | None = None,
-        **kwargs: Any) -> None:
+        axes: dict[int | str, Axes] | None = None,
+        **kwargs: Any) -> dict[int | str, Axes]:
     """
     Plots the distributions for a number of examples
 
@@ -919,29 +1036,49 @@ def plot_distributions(
         File name to save plot
     data : list[ndarray[floating]] | ndarray[floating]
         Distributions to plot, each row is a different distribution
+    log : bool, default = False,
+        If the x-axis should be logged
     y_axis : bool, default = True
         If y-axis should be plotted
     num_plots : int, default = 16
         Number of distributions to plot, number of rows in data will be used if rows < num_plots
+    x_label : str, default = None
+        Label of the x-axis
+    text_loc : str, default = 'upper right'
+        Location of the text
     labels : list[str], default = None
         Labels for data and data_twin if provided
     titles : list[str], default = None
         Titles for the distributions
+    texts : list[str], default = None
+        Text to display on each plot
     data_twin : list[ndarray[floating]], ndarray[floating], default = None
         Twin distributions to plot, each row is a different distribution corresponding to data
+    axes : dict[int | str, Axes], default = None
+        Dictionary of axes for each subplot
 
     **kwargs
         Optional keyword arguments for plotting the histogram
+
+    Returns
+    -------
+    dict[int | str, Axes]
+        Dictionary of axes for each subplot
     """
-    title: str | None
     datum: ndarray[floating]
     datum_twin: ndarray[floating] | None
-    axes: dict[str, Axes]
     fig: FigureBase
     axis: Axes
     twin_axis: Axes | None = None
 
-    axes, fig = _init_subplots(subplot_grid(min(len(data), num_plots)))
+    if axes is None:
+        axes, fig = _init_subplots(
+            subplot_grid(min(len(data), num_plots)),
+            titles=titles,
+            fig=_init_plot(x_labels=x_label)[0],
+        )
+    else:
+        fig = axes[0].get_figure()
 
     if labels is None:
         labels = [None, None]
@@ -949,18 +1086,26 @@ def plot_distributions(
     if data_twin is None:
         data_twin = [None] * len(data)
 
-    if titles is None:
-        titles = [None] * len(data)
+    if texts is None:
+        texts = [None] * len(data)
 
-    for title, datum, datum_twin, axis in zip(titles, data, data_twin, axes.values()):
+    for datum, datum_twin, text, axis in zip(data, data_twin, texts, axes.values()):
+        axis.set_xscale('log' if log else 'linear')
         twin_axis = _plot_histogram(
             datum,
             axis,
+            log=log,
             labels=labels,
             data_twin=datum_twin,
             **kwargs,
         )
-        axis.set_title(title, fontsize=MINOR)
+        # twin_axis = _plot_histogram2(
+        #     datum_twin,
+        #     axis,
+        #     log=log,
+        #     colour=COLOURS[1],
+        #     **kwargs,
+        # )
 
         if not y_axis:
             axis.tick_params(labelleft=False, left=False)
@@ -968,7 +1113,14 @@ def plot_distributions(
         if twin_axis and not y_axis:
             twin_axis.tick_params(labelright=False, right=False)
 
-    if twin_axis is not None:
+        if text:
+            axis.add_artist(mpl.offsetbox.AnchoredText(
+                text,
+                loc=text_loc,
+                prop={'fontsize': MINOR},
+            ))
+
+    if labels[0] is not None and twin_axis is not None:
         _legend(np.hstack((
             axes[0].get_legend_handles_labels(),
             twin_axis.get_legend_handles_labels(),
@@ -976,7 +1128,10 @@ def plot_distributions(
     elif labels[0] is not None:
         _legend(axes[0].get_legend_handles_labels(), fig)
 
-    plt.savefig(f'{plots_dir}{name}.png')
+    if plots_dir and name:
+        plt.savefig(f'{plots_dir}{name}.png')
+
+    return axes
 
 
 def plot_gaussian_preds(
@@ -1012,6 +1167,41 @@ def plot_gaussian_preds(
     )
     _legend(major_axis.get_legend_handles_labels(), fig)
     plt.savefig(f'{plots_dir}Gaussian_Predictions.png')
+
+
+def plot_multi_plot(
+        labels: list[str],
+        data: list[ndarray],
+        plot_func: Callable[..., dict[int | str, Axes] | ndarray],
+        name: str = '',
+        plots_dir: str = '',
+        **kwargs: Any) -> None:
+    """
+    Plots multiple datasets onto the same plot
+
+    Parameters
+    ----------
+    labels : list[str]
+        Labels for the different datasets
+    data : list[(N,L) ndarray]
+        Datasets to plot
+    plot_func : Callable[..., dict[int | str, Axes] | ndarray]
+        Plotting function to plot multiple datasets onto
+    name : str, default = ''
+        Name of the plot
+    plots_dir : str, default = ''
+        Directory to save plots
+    """
+    datum: ndarray
+    axes: dict[int | str, Axes] | ndarray | None = None
+
+    for colour, datum in zip(COLOURS, data):
+        axes = plot_func(datum, axes=axes, alpha=len(data) ** -1, colour=colour, **kwargs)
+
+    _legend(_legend_marker(COLOURS, labels), plt.gcf(), columns=len(labels))
+
+    if plots_dir and name:
+        plt.savefig(f'{plots_dir}{name}.png')
 
 
 def plot_param_comparison(
@@ -1124,12 +1314,7 @@ def plot_param_pairs(
                 _plot_histogram(x_data, axis, density=density, data_range=x_range, **kwargs)
                 axis.tick_params(labelleft=False, left=False)
             elif j < i:
-                axis.scatter(
-                    x_data[:SCATTER_NUM],
-                    y_data[:SCATTER_NUM],
-                    s=4,
-                    alpha=0.2,
-                )
+                axis.scatter(x_data[:SCATTER_NUM], y_data[:SCATTER_NUM], s=4, alpha=0.3)
 
                 if density:
                     _plot_density(
@@ -1211,7 +1396,7 @@ def plot_saliency(plots_dir: str, data: ndarray[floating], saliency: ndarray[flo
     i: int
     maximum: float
     datum: ndarray[floating]
-    axes: dict[str, Axes] = _init_subplots(subplot_grid(saliency.shape[0] + 1))[0]
+    axes: dict[int | str, Axes] = _init_subplots(subplot_grid(saliency.shape[0] + 1))[0]
     axis: Axes
 
     for i, (datum, axis) in enumerate(zip(

@@ -13,7 +13,8 @@ from netloader.utils import transforms
 from netloader.utils.utils import get_device, save_name
 from torch.utils.data import DataLoader
 
-from src.utils import plots
+# from src.utils import plots
+from src import plots
 from src.utils.analysis import summary
 from src.utils.utils import open_config
 from src.utils.data import DarkDataset, loader_init
@@ -42,7 +43,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     # Load config parameters
     save_num = config['training']['network-save']
     load_num = config['training']['network-load']
-    learning_rate = config['training']['network-learning-rate']
+    learning_rate = config['training']['learning-rate']
     name = config['training']['network-name']
     description = config['training']['network-description']
     networks_dir = config['data']['network-configs-directory']
@@ -58,10 +59,10 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
         param_transform = net.header['targets']
     else:
         transform = transforms.NumpyTensor()
-        param_transform = transforms.MultiTransform([
+        param_transform = transforms.MultiTransform(
             transforms.NumpyTensor(),
-            transforms.Log(),
-        ])
+            # transforms.Log(),
+        )
         param_transform.append(transforms.Normalise(param_transform(dataset.labels[np.isin(
             dataset.labels,
             np.unique(dataset.labels)[len(dataset.unknown):],
@@ -71,6 +72,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             networks_dir,
             list(dataset[0][2].shape),
             [len(np.unique(dataset.labels))],
+            # [1],
         )
         net = CompactClusterEncoder(
             save_num,
@@ -84,6 +86,26 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             transform=param_transform,
             in_transform=transform,
         )
+        # net = nets.Encoder(
+        #     save_num,
+        #     states_dir,
+        #     net,
+        #     learning_rate=learning_rate,
+        #     description=description,
+        #     verbose='progress',
+        #     transform=param_transform,
+        #     in_transform=transform,
+        # )
+        # net = CosineSimilarity(
+        #     save_num,
+        #     states_dir,
+        #     net,
+        #     learning_rate=learning_rate,
+        #     description=description,
+        #     verbose='epoch',
+        #     transform=param_transform,
+        #     in_transform=transform,
+        # )
 
     # Initialise datasets
     dataset.images = transform(dataset.images)
@@ -118,25 +140,34 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     data_dir = config['data']['data-dir']
 
     # Fetch dataset & network
-    unknown = ['zooms0.05', 'zooms0.1', 'zooms0.2']
+    # unknown = ['zooms0.05', 'zooms0.1', 'zooms0.2']
+    unknown = ['SIDM0.3+baryons']
+    # unknown = []
     dataset = DarkDataset(
         data_dir,
         [
-            'CDM_hi+baryons',
+            # 'CDM_hi+baryons',
             'CDM+baryons',
-            'CDM_low+baryons',
+            # 'CDM_low+baryons',
             'SIDM0.1+baryons',
-            'SIDM0.3+baryons',
+            # 'SIDM0.3+baryons',
             'SIDM1+baryons',
-            'zooms0.2',
-            'zooms0.1',
-            'zooms0.05',
-            'zooms0.01',
-            'flamingo',
+            # 'zooms0.2',
+            # 'zooms0.1',
+            # 'zooms0.05',
+            # 'zooms0.01',
+            # 'flamingo',
             # 'vdSIDM+baryons',
         ],
         unknown,
     )
+    # dataset = GaussianDataset(
+    #     '../data/gaussian_data_3.pkl',
+    #     [0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.05],
+    #     # [0.05, 0.3, 0.7, 1.05],
+    #     [],
+    # )
+    # dataset = GaussianDataset('../data/gaussian_data_3.pkl', [0.1, 1], [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
     net = net_init(dataset, config)
 
     # Initialise data loaders
@@ -156,7 +187,7 @@ def main(config_path: str = '../config.yaml'):
     """
     _, config = open_config('main', config_path)
 
-    net_epochs = config['training']['network-epochs']
+    net_epochs = config['training']['epochs']
     labels = config['training']['class-labels']
     states_dir = config['output']['network-states-directory']
     plots_dir = config['output']['plots-directory']
@@ -167,7 +198,8 @@ def main(config_path: str = '../config.yaml'):
         '#0B00FA',
         '#76F018',
         # '#1CEDCC',
-        '#1C88ED',
+        # '#1C88ED',
+        '#FAAB00',
         # '#1CCAED',
         '#F01F31',
         '#F0631F',
@@ -183,65 +215,124 @@ def main(config_path: str = '../config.yaml'):
         os.makedirs(states_dir)
 
     # Initialise network
-    loaders, net, _ = init(config)
+    loaders, net, dataset = init(config)
 
     # Train network
     net.training(net_epochs, loaders)
 
-    # Plots
-    plots.plot_performance(
-        plots_dir,
-        'Net_Losses',
-        'Loss',
-        net.losses[1],
-        log_y=False,
-        train=net.losses[0],
-    )
-
     # Generate predictions
     data = net.predict(loaders[1])
     data['targets'] = data['targets'].squeeze()
+    stellar_frac = dataset.stellar_frac[data['ids'].astype(int)]
+
+    for sim in np.unique(dataset.sims):
+        data_idxs = np.isin(data['ids'], dataset.ids[dataset.sims == sim])
+        label = data['targets'][data_idxs][0]
+
+        if label == 1e-3:
+            label = 0.3
+
+        while label in np.unique(data['targets'][~data_idxs]):
+            label *= 0.999
+
+        data['targets'][data_idxs] = label
+
+    distributions = []
+
+    for class_ in np.unique(data['targets']):
+        idxs = class_ == data['targets']
+        distributions.append(net.header['targets'](data['latent'][idxs, 0], back=True))
+        # distributions.append(data['preds'][idxs])
 
     # Plot predictions
+    plots.PlotPerformance(
+        net.losses,
+        x_label='Epoch',
+        y_label='Loss',
+        labels=['Train', 'Validation'],
+    ).savefig(plots_dir, 'losses')
+    plots.PlotDistributions(
+        distributions,
+        log=True,
+        norm=True,
+        y_axes=False,
+        density=True,
+        titles=labels,
+        data_twin=np.unique(data['targets']),
+    ).savefig(plots_dir, name='cluster_predictions')
+    plots.PlotClusters(
+        PCA(n_components=4).fit_transform(data['latent']),
+        data['targets'],
+        density=True,
+        labels=labels,
+        hatches=['-', '/', '\\', '|'],
+    ).savefig(plots_dir, name='PCA')
+    plots.PlotClusters(
+        data['latent'],
+        data['targets'],
+        density=True,
+        labels=labels,
+        hatches=['-', '/', '\\', '|'],
+    ).savefig(plots_dir)
+    plots.PlotConfusion(labels, data['preds'], data['targets']).savefig(plots_dir)
+    saliency = net.saliency(loaders[1], net)
+    plots.PlotSaliency(saliency['inputs'][0, 0], saliency['saliencies'][0, :, 0]).savefig(plots_dir)
+
+    # plots.plot_performance(
+    #     plots_dir,
+    #     'Net_Losses',
+    #     'Loss',
+    #     net.losses[1],
+    #     log_y=False,
+    #     train=net.losses[0],
+    # )
     # plots.plot_distributions(
     #     plots_dir,
     #     'Encoder Predictions',
     #     distributions,
+    #     log=False,
     #     y_axis=False,
     #     num_plots=len(distributions),
+    #     x_label=r'Predicted $\sigma_{\rm DM}$',
     #     titles=labels,
+    #     labels=['Predictions', 'True Value'],
+    #     texts=[f'Mean: {10 ** np.mean(np.log10(distribution)):.2e}\n'
+    #            f'Median: {10 ** np.median(np.log10(distribution)):.2e}'
+    #            for distribution in distributions],
     #     data_twin=np.unique(data['targets']),
-    #     data_range=(np.min(data['preds']), np.max(data['preds'])),
+    #     data_range=(
+    #         min(np.min(distribution) for distribution in distributions),
+    #         max(np.max(distribution) for distribution in distributions),
+    #     ),
     # )
-    plots.plot_clusters(
-        f'{plots_dir}PCA',
-        PCA(n_components=2).fit_transform(data['latent']),
-        data['targets'],
-        colours=colours,
-        labels=labels,
-        # hatches=['-'] * 4 + ['/'] + ['\\'] * 3 + ['|'] * 3
-    )
-    plots.plot_clusters(
-        f'{plots_dir}Clusters',
-        data['latent'],
-        data['targets'],
-        labels=labels,
-        predictions=data['preds'],
-    )
-    plots.plot_confusion(plots_dir, labels, data['targets'], data['preds'])
-
-    # Plot Saliency
-    saliency = net.saliency(loaders[1], net)
-    plots.plot_saliency(
-        f'{plots_dir}Mass_',
-        saliency['inputs'][0, 0],
-        saliency['saliencies'][0, :, 0],
-    )
-    plots.plot_saliency(
-        f'{plots_dir}Gas_',
-        saliency['inputs'][0, 1],
-        saliency['saliencies'][0, :, 1],
-    )
+    # plots.plot_clusters(
+    #     f'{plots_dir}PCA',
+    #     PCA(n_components=2).fit_transform(data['latent']),
+    #     data['targets'],
+    #     colours=colours,
+    #     # labels=labels,
+    #     # hatches=['-'] * 4 + ['/'] + ['\\'] * 3 + ['|'] * 3
+    # )
+    # plots.plot_clusters(
+    #     f'{plots_dir}Clusters',
+    #     data['latent'],
+    #     data['targets'],
+    #     labels=labels,
+    #     predictions=data['preds'],
+    # )
+    # plots.plot_confusion(plots_dir, labels, data['targets'], data['preds'])
+    #
+    # # Plot Saliency
+    # plots.plot_saliency(
+    #     f'{plots_dir}Mass_',
+    #     saliency['inputs'][0, 0],
+    #     saliency['saliencies'][0, :, 0],
+    # )
+    # plots.plot_saliency(
+    #     f'{plots_dir}Gas_',
+    #     saliency['inputs'][0, 1],
+    #     saliency['saliencies'][0, :, 1],
+    # )
 
     pd.set_option('display.max_columns', 20)
     pd.set_option('display.width', 500)

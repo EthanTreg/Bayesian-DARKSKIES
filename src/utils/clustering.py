@@ -420,7 +420,7 @@ class ClusterEncoder(BaseNetwork):
             self.net.checkpoints[-1].detach().cpu().numpy(),
         )
 
-    def to(self, *args: Any, **kwargs: Any) -> Self:
+    def to(self, *args: Any, **kwargs: Any) -> Self:  # pylint: disable=missing-function-docstring
         super().to(*args, **kwargs)
         self.classes = self.classes.to(*args, **kwargs)
         self.center_step = self.center_step.to(*args, **kwargs)
@@ -662,6 +662,23 @@ class CompactClusterEncoder(ClusterEncoder):
         return loss.item()
 
     def _loss_function(self, target: Tensor, latent: Tensor, output: Tensor) -> Tensor:
+        """
+        Loss function of the CompactClusterEncoder
+
+        Parameters
+        ----------
+        target : (N,1) Tensor
+            N target labels
+        latent : (N,Z) Tensor
+            N predicted 7D latent values
+        output : (N,C) Tensor
+            Predicted label scores
+
+        Returns
+        -------
+        (1) Tensor
+            Final loss
+        """
         l_idxs: Tensor
         one_hot: Tensor
         bottleneck: Tensor
