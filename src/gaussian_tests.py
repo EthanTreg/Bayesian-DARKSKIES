@@ -7,11 +7,11 @@ from typing import Any
 
 import numpy as np
 import netloader.networks as nets
-import torch
 from numpy import ndarray, floating
 from torch.utils.data import DataLoader
 
-from src.utils import plots
+# from src.utils import plots
+from src import plots
 from src.main import net_init
 from src.utils.utils import open_config
 from src.utils.data import GaussianDataset, loader_init
@@ -218,7 +218,12 @@ def main(config_path: str = '../config.yaml'):
             with open(save_path, 'wb') as file:
                 pickle.dump(data, file)
 
-    plots.plot_gaussian_preds(config['output']['plots-directory'], data)
+    plots.PlotGaussianPreds(
+        np.mean(data['means'], axis=1),
+        data['unseen'],
+        labels=data['names'],
+        uncertainties=np.std(data['means'], axis=1),
+    )
     # accuracies = np.stack(accuracies)
     # pd.set_option('display.max_columns', 20)
     # pd.set_option('display.width', 500)

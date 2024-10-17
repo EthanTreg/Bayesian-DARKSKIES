@@ -10,3 +10,5 @@ __pycache__/
 model_states/*[Tt][Ee][Ss][Tt]*
 model_states/*[Tt][Ee][Mm][Pp]*
 !/src/gaussian_tests.py
+/*.egg-info/
+/build/
