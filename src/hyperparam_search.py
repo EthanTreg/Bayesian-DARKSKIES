@@ -10,13 +10,13 @@ import numpy as np
 from torch import optim, nn
 from torch.nn import Module
 from torch.utils.data import DataLoader
-from netloader.utils.utils import get_device, progress_bar
+from netloader.utils.utils import get_device
 from netloader.network import Network
 from netloader import layers
 
 from src.main import init
 from src.optimise import _update_net
-from src.utils.utils import open_config
+from src.utils.utils import open_config, progress_bar
 from src.utils.clustering import CompactClusterEncoder
 
 
@@ -105,6 +105,7 @@ def _objective(
             epochs,
             text=f'Epoch {i + 1}/{epochs}\tAccuracy: {net.losses[1][-1]:.1%}\tTraining time: '
                  f'{time() - initial_time:.1f} s',
+            flush=True,
         )
 
         # End plateaued networks early
