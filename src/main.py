@@ -114,7 +114,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     return net.to(device)
 
 
-def init(config: dict | str = '../config.yaml') -> tuple[
+def init(config: dict | str = '../config.yaml', known: list[str] | None = None) -> tuple[
         tuple[DataLoader, DataLoader],
         nets.BaseNetwork,
         DarkDataset]:
@@ -141,11 +141,11 @@ def init(config: dict | str = '../config.yaml') -> tuple[
 
     # Fetch dataset & network
     # unknown = ['zooms0.05', 'zooms0.1', 'zooms0.2']
-    unknown = ['SIDM0.3+baryons']
-    # unknown = []
-    dataset = DarkDataset(
-        data_dir,
-        [
+    # unknown = ['SIDM0.3+baryons']
+    unknown = []
+
+    if known is None:
+        known = [
             # 'CDM_hi+baryons',
             'CDM+baryons',
             # 'CDM_low+baryons',
@@ -158,7 +158,11 @@ def init(config: dict | str = '../config.yaml') -> tuple[
             # 'zooms0.01',
             # 'flamingo',
             # 'vdSIDM+baryons',
-        ],
+        ]
+
+    dataset = DarkDataset(
+        data_dir,
+        known,
         unknown,
     )
     # dataset = GaussianDataset(
@@ -167,11 +171,11 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     #     # [0.05, 0.3, 0.7, 1.05],
     #     [],
     # )
-    dataset = GaussianDataset(
-        '../data/elliptical_data.pkl',
-        [0.55, 1, 1.5],
-        [0.549, 0.551],
-    )
+    # dataset = GaussianDataset(
+    #     '../data/elliptical_data.pkl',
+    #     [0.55, 1, 1.5],
+    #     [0.549, 0.551],
+    # )
     net = net_init(dataset, config)
 
     # Initialise data loaders

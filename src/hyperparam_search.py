@@ -161,10 +161,6 @@ def main(config_path: str = '../config.yaml') -> None:
 
     study_save = config['optimisation']['study-save']
     study_dir = config['data']['study-directory']
-    loaders, net, _ = init(config=main_config)
-    net.save_path = config['output']['network']
-    net._verbose = None
-    torch.save(net, config['output']['base-network'])
 
     # Find the last checkpoint corresponding to the latent space
     for idx, module in enumerate(net.net.net[::-1]):
@@ -175,6 +171,10 @@ def main(config_path: str = '../config.yaml') -> None:
     # Loop through sims
     for i, sim in enumerate(sims):
         current_sims += sim
+        loaders, net, _ = init(config=main_config, known=current_sims)
+        net.save_path = config['output']['network']
+        net._verbose = None
+        torch.save(net, config['output']['base-network'])
 
         # Loop through latent dimensions
         for j, dim in enumerate(latent_dims):
