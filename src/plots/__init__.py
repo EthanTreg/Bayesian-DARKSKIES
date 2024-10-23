@@ -6,6 +6,7 @@ from src.plots.misc import (
     PlotConfusion,
     PlotDistributions,
     PlotGaussianPreds,
+    PlotImages,
     PlotParamComparison,
     PlotParamPairs,
     PlotPerformance,

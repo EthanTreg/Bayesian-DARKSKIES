@@ -239,15 +239,15 @@ class GaussianDataset(Dataset):
             Known classes with unknown labels
         """
         self.unknown: list[float] = unknown
-        self.ids: ndarray[np.int_]
-        self.idxs: ndarray[np.int_] | None = None
-        self.labels: ndarray[floating] | Tensor
-        self.images: ndarray[floating] | Tensor
+        self.ids: ndarray
+        self.idxs: ndarray | None = None
+        self.labels: ndarray | Tensor
+        self.images: ndarray | Tensor
         i: int
         class_: float
-        bad_idxs: ndarray[np.bool_]
-        labels: ndarray[floating]
-        images: ndarray[floating]
+        bad_idxs: ndarray
+        labels: ndarray
+        images: ndarray
 
         with open(data_path, 'rb') as file:
             labels, images = pickle.load(file)

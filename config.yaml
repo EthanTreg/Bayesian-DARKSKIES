@@ -22,13 +22,13 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    epochs: 150
+    epochs: 60
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 0
+    network-save: 22
     # File number to load the network state
-    network-load: 1002
+    network-load: 22
     # Learning rate for training the network
     learning-rate: 1.0e-4
     # Validation dataset fraction
@@ -36,7 +36,7 @@ main:
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Linear'
+    network-description: 'Ellipticals proportional'
     # Labels for the classes
     class-labels:
 #      - 'VD Low'
@@ -53,27 +53,20 @@ main:
 #      - 'Flamingo-0'
 #      - 'CDM Low'
 #      - 'CDM'
-      - 'BAHAMAS-0'
+#      - 'BAHAMAS-0'
 #      - 'CDM High'
 #      - '$\sigma=0.1$'
-      - 'BAHAMAS-0.1'
+#      - 'BAHAMAS-0.1'
 #      - '$\sigma=0.3$'
-      - 'BAHAMAS-0.3 (Unknown)'
+#      - 'BAHAMAS-0.3 (Unknown)'
 #      - '$\sigma=1$'
-      - 'BAHAMAS-1'
+#      - 'BAHAMAS-1'
 #      - 'BAHAMAS-VD (Unknown)'
-#      - '0.05'
-#      - '0.1'
-#      - '0.2'
-#      - '0.3'
-#      - '0.4'
-#      - '0.5'
-#      - '0.6'
-#      - '0.7'
-#      - '0.8'
-#      - '0.9'
-#      - '1.0'
-#      - '1.05'
+      - '0.551'
+      - '0.549'
+      - '0.55'
+      - '1.0'
+      - '1.55'
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters

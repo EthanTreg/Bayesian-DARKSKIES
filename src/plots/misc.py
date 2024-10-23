@@ -343,6 +343,98 @@ class PlotGaussianPreds(BasePlot):
             )[0])
 
 
+class PlotImages(BasePlot):
+    """
+    Plots images as a grid
+
+    Attributes
+    ----------
+    plots : list[Artist], default = []
+        Plot artists
+    axes : dict[int | str, Axes] | (R,C) ndarray | Axes
+        Plot axes for R rows and C columns
+    subfigs : (H,W) ndarray | None, default = None
+        Plot sub-figures for H rows and W columns
+    fig : Figure
+        Plot figure
+    legend : Legend | None, default = None
+        Plot legend
+    """
+    def __init__(
+            self,
+            data: ndarray,
+            num_plots: int = 12,
+            cmaps: str | list[str] | None = None,
+            titles: list[str] | None = None,
+            fig_size: tuple[int, int] = utils.HI_RES,
+            ranges: tuple[float, float] | list[tuple[float, float]] | ndarray | None = None,
+            **kwargs: Any):
+        """
+        Parameters
+        ----------
+        data : (B,W,H) ndarray
+            B image data of width W and height H
+        num_plots : int, default = 12
+            Maximum number of images to plot
+        cmaps : str | list[str] | None, default = 'hot'
+            Colour map(s) for each image
+        titles: list[str] | None, default = None
+            Titles for each image
+        fig_size : tuple[int, int], default = HI_RES
+            Size of the figure
+        ranges : tuple[float, float] | list[tuple[float, float]] | ndarray | None, default = None
+            Lower and upper bounds for each image, default is minimum and maximum for each image
+
+        **kwargs
+            Optional keyword arguments to pass to BasePlot
+        """
+        self._num_plots: int = min(num_plots, len(data))
+        self._cmaps: list[str]
+        self._ranges: list[tuple[float, float]] | ndarray
+        self._data: ndarray
+
+        if isinstance(cmaps, str):
+            self._cmaps = [cmaps] * self._num_plots
+        else:
+            self._cmaps = cmaps or ['hot'] * self._num_plots
+
+        if ranges is None:
+            self._ranges = [(np.min(data), np.max(data))] * self._num_plots
+        elif np.ndim(ranges) < 2:
+            self._ranges = [ranges] * self._num_plots
+        else:
+            self._ranges = ranges
+
+        super().__init__(data, labels=titles, fig_size=fig_size, **kwargs)
+
+    def _axes_init(self) -> None:
+        self.subplots(subplot_grid(self._num_plots), titles=self._labels)
+
+    def _post_init(self) -> None:
+        self._default_name = 'images'
+
+    def _plot_data(self) -> None:
+        assert isinstance(self.axes, dict)
+        cmap: str
+        range_: tuple[float, float] | ndarray
+        data: ndarray
+        axis: Axes
+
+        for cmap, range_, data, axis in zip(
+                self._cmaps,
+                self._ranges,
+                self._data,
+                self.axes.values()):
+            self.plots.append(axis.imshow(data, cmap=cmap, vmin=range_[0], vmax=range_[1]))
+            axis.tick_params(labelbottom=False, bottom=False, labelleft=False, left=False)
+
+    def create_legend(self, *_, **__) -> None:
+        """
+        Confusion matrix should not have a legend
+        """
+        return
+
+
 class PlotParamComparison(BasePlot):
     """
     Plots a comparison between y-data and x-data
@@ -532,7 +624,7 @@ class PlotPerformance(BasePlot):
             self.plots.append(self.axes.plot(data, color=colour)[0])
 
 
-class PlotSaliency(BasePlot):
+class PlotSaliency(PlotImages):
     """
     Plots the saliency and input for multiple saliency maps
 
@@ -569,37 +661,21 @@ class PlotSaliency(BasePlot):
             Size of the figure
 
         **kwargs
-            Optional keyword arguments to pass to BasePlot
+            Optional keyword arguments to pass to PlotImages
         """
-        self._num_plots: int = min(num_plots, len(saliency) + 1)
-        self._data: ndarray
-        self._saliency: ndarray = saliency
-        super().__init__(data, fig_size=fig_size, **kwargs)
-
-    def _axes_init(self) -> None:
-        self.subplots(
-            subplot_grid(self._num_plots),
-            titles=['Input'] + [f'Dim {i}' for i in range(len(self._saliency))],
+        super().__init__(
+            np.concat((data[np.newaxis], saliency)),
+            num_plots=num_plots,
+            cmaps=['hot'] + ['twilight'] * len(saliency),
+            titles=['Input'] + [f'Dim {i + 1}' for i in range(len(saliency))],
+            ranges=np.concat((
+                [[0, np.max(data)]],
+                np.min(saliency, axis=(1, 2)),
+                np.max(saliency, axis=(1, 2)),
+            )),
+            fig_size=fig_size,
+            **kwargs,
         )
 
     def _post_init(self) -> None:
         self._default_name = 'saliency'
-
-    def _plot_data(self) -> None:
-        assert isinstance(self.axes, dict)
-        i: int
-        max_: float
-        data: ndarray
-        axis: Axes
-
-        for i, (data, axis) in enumerate(zip(
-                np.concat((self._data[np.newaxis], self._saliency)),
-                self.axes.values())):
-            max_ = np.max(np.abs(data))
-            self.plots.append(axis.imshow(
-                data,
-                cmap='hot' if i == 0 else 'twilight',
-                vmin=0 if i == 0 else - max_,
-                vmax=max_,
-            ))
-            axis.tick_params(labelbottom=False, bottom=False, labelleft=False, left=False)

@@ -140,9 +140,9 @@ def main(config_path: str = '../config.yaml') -> None:
     sim: list[str]
     current_sims: list[str] = []
     sims: list[list[str]] = [
-        ['CDM+baryons', 'SIDM0.1+baryons', 'SIDM0.3+baryons', 'SIDM1+baryons'],
+        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1.0'],
         ['CDM_low+baryons', 'CDM_hi+baryons'],
-        ['zooms0.01', 'zooms0.05', 'zooms0.1', 'zooms0.2'],
+        ['darkskies0.01', 'darkskies0.05', 'darkskies0.1', 'darkskies0.2'],
         ['flamingo'],
         ['tng'],
     ]

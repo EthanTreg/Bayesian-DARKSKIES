@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from src import plots
 from src.utils.analysis import summary
 from src.utils.utils import open_config
-from src.utils.data import DarkDataset, loader_init
+from src.utils.data import GaussianDataset, DarkDataset, loader_init
 from src.utils.clustering import CompactClusterEncoder
 
 
@@ -167,7 +167,11 @@ def init(config: dict | str = '../config.yaml') -> tuple[
     #     # [0.05, 0.3, 0.7, 1.05],
     #     [],
     # )
-    # dataset = GaussianDataset('../data/gaussian_data_3.pkl', [0.1, 1], [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+    dataset = GaussianDataset(
+        '../data/elliptical_data.pkl',
+        [0.55, 1, 1.5],
+        [0.549, 0.551],
+    )
     net = net_init(dataset, config)
 
     # Initialise data loaders
@@ -223,26 +227,26 @@ def main(config_path: str = '../config.yaml'):
     # Generate predictions
     data = net.predict(loaders[1])
     data['targets'] = data['targets'].squeeze()
-    stellar_frac = dataset.stellar_frac[data['ids'].astype(int)]
+    # stellar_frac = dataset.stellar_frac[data['ids'].astype(int)]
 
-    for sim in np.unique(dataset.sims):
-        data_idxs = np.isin(data['ids'], dataset.ids[dataset.sims == sim])
-        label = data['targets'][data_idxs][0]
-
-        if label == 1e-3:
-            label = 0.3
-
-        while label in np.unique(data['targets'][~data_idxs]):
-            label *= 0.999
-
-        data['targets'][data_idxs] = label
-
-    distributions = []
-
-    for class_ in np.unique(data['targets']):
-        idxs = class_ == data['targets']
-        distributions.append(net.header['targets'](data['latent'][idxs, 0], back=True))
-        # distributions.append(data['preds'][idxs])
+    # for sim in np.unique(dataset.sims):
+    #     data_idxs = np.isin(data['ids'], dataset.ids[dataset.sims == sim])
+    #     label = data['targets'][data_idxs][0]
+    #
+    #     if label == 1e-3:
+    #         label = 0.3
+    #
+    #     while label in np.unique(data['targets'][~data_idxs]):
+    #         label *= 0.999
+    #
+    #     data['targets'][data_idxs] = label
+    #
+    # distributions = []
+    #
+    # for class_ in np.unique(data['targets']):
+    #     idxs = class_ == data['targets']
+    #     distributions.append(net.header['targets'](data['latent'][idxs, 0], back=True))
+    #     # distributions.append(data['preds'][idxs])
 
     # Plot predictions
     plots.PlotPerformance(
@@ -251,32 +255,32 @@ def main(config_path: str = '../config.yaml'):
         y_label='Loss',
         labels=['Train', 'Validation'],
     ).savefig(plots_dir, 'losses')
-    plots.PlotDistributions(
-        distributions,
-        log=True,
-        norm=True,
-        y_axes=False,
-        density=True,
-        titles=labels,
-        data_twin=np.unique(data['targets']),
-    ).savefig(plots_dir, name='cluster_predictions')
+    # plots.PlotDistributions(
+    #     distributions,
+    #     log=True,
+    #     norm=True,
+    #     y_axes=False,
+    #     density=True,
+    #     titles=labels,
+    #     data_twin=np.unique(data['targets']),
+    # ).savefig(plots_dir, name='cluster_predictions')
     plots.PlotClusters(
         PCA(n_components=4).fit_transform(data['latent']),
         data['targets'],
         density=True,
         labels=labels,
-        hatches=['-', '/', '\\', '|'],
+        # hatches=['-', '/', '\\', '|'],
     ).savefig(plots_dir, name='PCA')
     plots.PlotClusters(
         data['latent'],
         data['targets'],
         density=True,
         labels=labels,
-        hatches=['-', '/', '\\', '|'],
+        # hatches=['-', '/', '\\', '|'],
     ).savefig(plots_dir)
     plots.PlotConfusion(labels, data['preds'], data['targets']).savefig(plots_dir)
-    saliency = net.saliency(loaders[1], net)
-    plots.PlotSaliency(saliency['inputs'][0, 0], saliency['saliencies'][0, :, 0]).savefig(plots_dir)
+    # saliency = net.saliency(loaders[1], net)
+    # plots.PlotSaliency(saliency['inputs'][0, 0], saliency['saliencies'][0, :, 0]).savefig(plots_dir)
 
     # plots.plot_performance(
     #     plots_dir,

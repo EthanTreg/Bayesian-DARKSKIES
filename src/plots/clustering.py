@@ -36,7 +36,7 @@ class _BasePlotClusters(BasePlot):
             bins: int = 200,
             labels: list[str] | None = None,
             colours: list[str] | None = None,
-            hatches: list[str] = None,
+            hatches: list[str] | None = None,
             fig_size: tuple[int, int] = utils.RECTANGLE,
             preds: ndarray | None = None):
         """

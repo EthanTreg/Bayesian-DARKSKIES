@@ -79,6 +79,9 @@ def dict_list_append(
     for key in np.unique(list(dict1.keys()) + list(dict2.keys())):
         key = str(key)
 
+        if key == 'galaxy_catalogues':
+            dict2[key] = np.array(dict2[key], dtype=object)
+
         # If the secondary dict has a key not in the primary, pad with Nones
         if key not in dict1 and np.ndim(dict2[key]) > 0 and isinstance(dict2[key][0], ndarray):
             dict1[key] = [np.array([None] * len(dict2[key][0]))] * dict1_len
@@ -174,10 +177,15 @@ def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
 
     # Convert lists to numpy arrays
     for key, value in labels.items():
-        labels[key] = np.array(value)
+        labels[key] = np.array(value, dtype=object if key == 'galaxy_catalogues' else None)
+
+    # Make sure shape is (N,C,H,W)
+    images = np.array(images)
+
+    if images.shape[-1] != images.shape[-2]:
+        images = np.moveaxis(images, -1, 1)
 
     # Normalise images and save normalisations in labels
-    images = np.array(images)
     labels['norms'] = np.max(images, axis=(-2, -1))
     images /= labels['norms'][..., np.newaxis, np.newaxis]
 
@@ -195,7 +203,7 @@ def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
 
 if __name__ == "__main__":
     main(
-        '../../Bayesian-DARKSKIES/data/flamingo/',
+        '../../Bayesian-DARKSKIES/data/temp/',
         overwrite=True,
-        save_path='../data/zooms0.05.pkl',
+        save_path='../data/bahamas.pkl',
     )
