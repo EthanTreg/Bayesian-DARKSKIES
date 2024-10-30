@@ -1,6 +1,7 @@
 """
 Searches the parameter space to find the performance of the network
 """
+import os
 import pickle
 from time import time
 from typing import Any, BinaryIO
@@ -141,8 +142,7 @@ def main(config_path: str = '../config.yaml') -> None:
     sim: list[str]
     current_sims: list[str] = []
     sims: list[list[str]] = [
-        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1.0'],
-        ['CDM_low+baryons', 'CDM_hi+baryons'],
+        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1.0', 'CDM_low+baryons', 'CDM_hi+baryons'],
         ['darkskies0.01', 'darkskies0.05', 'darkskies0.1', 'darkskies0.2'],
         ['flamingo'],
         ['tng'],
@@ -163,6 +163,12 @@ def main(config_path: str = '../config.yaml') -> None:
     study_save = config['optimisation']['study-save']
     study_dir = config['data']['study-directory']
 
+    if os.path.exists(f'{study_dir}study_{study_save}.pkl'):
+        with open(f'{study_dir}study_{study_save}.pkl', 'rb') as file:
+            data = pickle.load(file)
+
+    initial_idx = int(list(data.keys())[-1])
+
     # Loop through sims
     for i, sim in enumerate(sims):
         current_sims += sim
@@ -179,7 +185,7 @@ def main(config_path: str = '../config.yaml') -> None:
 
         # Loop through latent dimensions
         for j, dim in enumerate(latent_dims):
-            run_idx = i * len(latent_dims) + j
+            run_idx = initial_idx + i * len(latent_dims) + j
             data[run_idx] = {'latent_dim': dim, 'sims': current_sims, 'losses': [], 'nets': []}
 
             # Repeat n times
