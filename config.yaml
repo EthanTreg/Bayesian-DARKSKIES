@@ -26,9 +26,9 @@ main:
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 22
+    network-save: 0
     # File number to load the network state
-    network-load: 22
+    network-load: 20
     # Learning rate for training the network
     learning-rate: 1.0e-4
     # Validation dataset fraction
@@ -39,34 +39,23 @@ main:
     network-description: 'Ellipticals proportional'
     # Labels for the classes
     class-labels:
-#      - 'VD Low'
-#      - 'VD Mid'
-#      - 'VD High'
-#      - 'Zoom 0.05'
-#      - 'DARKSKIES-0.01'
-#      - 'DARKSKIES-0.05'
-#      - 'Zoom 0.1'
-#      - 'DARKSKIES-0.1'
-#      - 'Zoom 0.2'
-#      - 'DARKSKIES-0.2'
-#      - 'Zoom 0.01'
-#      - 'Flamingo-0'
-#      - 'CDM Low'
-#      - 'CDM'
-#      - 'BAHAMAS-0'
-#      - 'CDM High'
-#      - '$\sigma=0.1$'
-#      - 'BAHAMAS-0.1'
-#      - '$\sigma=0.3$'
-#      - 'BAHAMAS-0.3 (Unknown)'
-#      - '$\sigma=1$'
-#      - 'BAHAMAS-1'
-#      - 'BAHAMAS-VD (Unknown)'
-      - '0.551'
-      - '0.549'
-      - '0.55'
-      - '1.0'
-      - '1.55'
+      - 'BAHAMAS-0 Low'
+      - 'BAHAMAS-0'
+      - 'BAHAMAS-0 High'
+      - 'BAHAMAS-0.1'
+      - 'BAHAMAS-0.3'
+      - 'BAHAMAS-1'
+      - 'DARKSKIES-0.01'
+      - 'Flamingo-0'
+      - 'TNG-0'
+      - 'DARKSKIES-0.05 (U)'
+      - 'DARKSKIES-0.1 (U)'
+      - 'DARKSKIES-0.2 (U)'
+#      - '0.551'
+#      - '0.549'
+#      - '0.55'
+#      - '1.0'
+#      - '1.55'
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters
@@ -98,7 +87,7 @@ optimise:
     # File number to save the study progres
     study-save: 6
     # File number to load the study state
-    study-load: 0
+    study-load: 6
     # Number of epochs before pruning can occur
     warmup: 10
     # Number of epochs to average over when reporting metrics

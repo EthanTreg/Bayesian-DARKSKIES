@@ -137,13 +137,15 @@ def main(config_path: str = '../config.yaml') -> None:
     run_idx: int
     study_save: int
     repeats: int = 5
+    initial_idx: int = 0
     study_dir: str
     latent_dims: list[int] = [1, 2, 3, 7, 10, 20, 50, 100]
     sim: list[str]
     current_sims: list[str] = []
     sims: list[list[str]] = [
-        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1.0', 'CDM_low+baryons', 'CDM_hi+baryons'],
-        ['darkskies0.01', 'darkskies0.05', 'darkskies0.1', 'darkskies0.2'],
+        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1.0'],
+        ['CDM_low+baryons', 'CDM_hi+baryons'],
+        ['darkskies_0.01', 'darkskies_0.05', 'darkskies_0.1', 'darkskies_0.2'],
         ['flamingo'],
         ['tng'],
     ]
@@ -161,17 +163,23 @@ def main(config_path: str = '../config.yaml') -> None:
     main_config['training'] |= config['optimisation']
 
     study_save = config['optimisation']['study-save']
+    study_load = config['optimisation']['study-load']
     study_dir = config['data']['study-directory']
 
-    if os.path.exists(f'{study_dir}study_{study_save}.pkl'):
-        with open(f'{study_dir}study_{study_save}.pkl', 'rb') as file:
+    if os.path.exists(f'{study_dir}study_{study_load}.pkl'):
+        with open(f'{study_dir}study_{study_load}.pkl', 'rb') as file:
             data = pickle.load(file)
 
-    initial_idx = int(list(data.keys())[-1])
+        initial_idx = int(list(data.keys())[-1]) + 1
 
     # Loop through sims
     for i, sim in enumerate(sims):
+        print(f'Sim Test {i + 1}/{len(sims)}', flush=True)
         current_sims += sim
+
+        if initial_idx and all(sim in data[initial_idx - 1]['sims'] for sim in current_sims):
+            continue
+
         loaders, net, _ = init(config=main_config, known=current_sims)
         net.save_path = config['output']['network']
         net._verbose = None
