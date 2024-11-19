@@ -203,7 +203,7 @@ def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
 
 if __name__ == "__main__":
     main(
-        '../../Bayesian-DARKSKIES/data/temp/',
+        '../data/temp/',
         overwrite=True,
-        save_path='../data/bahamas.pkl',
+        save_path='../data/flamingo_low.pkl',
     )

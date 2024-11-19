@@ -9,6 +9,7 @@ import scienceplots  # pylint: disable=unused-import
 import matplotlib.pyplot as plt
 from numpy import ndarray
 from matplotlib.axes import Axes
+from matplotlib.lines import Line2D
 from matplotlib.artist import Artist
 from matplotlib.legend import Legend
 from matplotlib.contour import ContourSet
@@ -241,6 +242,8 @@ class BasePlot:
             self,
             subplots: str | tuple[int, int] | list[list[int | str]] | ndarray,
             titles: list[str] | None = None,
+            x_labels: list[str] | None = None,
+            y_labels: list[str] | None = None,
             fig: FigureBase | None = None,
             **kwargs: Any) -> None:
         """
@@ -252,6 +255,10 @@ class BasePlot:
             Parameters for subplots or subplot_mosaic for R rows and C columns
         titles : list[str] | None, default = None
             Titles for each axis
+        x_labels : list[str] | None, default = None
+            Labels for the x-axis
+        y_labels : list[str] | None, default = None
+            Labels for the y-axis
         fig : FigureBase | None, default = self.fig
             Figure or sub-figure to add subplots to
 
@@ -277,6 +284,22 @@ class BasePlot:
             kwargs={'labelsize': utils.MINOR},
         )
 
+        if isinstance(self.axes, ndarray) and x_labels:
+            self._multi_param_func_calls(
+               'set_xlabel',
+                self.axes[-1],
+                x_labels,
+                kwargs={'fontsize': utils.MAJOR},
+            )
+
+        if isinstance(self.axes, ndarray) and y_labels:
+            self._multi_param_func_calls(
+               'set_ylabel',
+                self.axes[:, 0],
+                y_labels,
+                kwargs={'fontsize': utils.MAJOR},
+            )
+
     def create_legend(
             self,
             rows: int = 1,
@@ -293,8 +316,8 @@ class BasePlot:
         """
         cols: int = np.ceil(len(self._labels) / rows)
         fig_size: float = self.fig.get_size_inches()[0] * self.fig.dpi
-        legend_offset: float
         handles: list[tuple[Artist, ...]]
+        legend_range: ndarray
         handle: ndarray | Artist
 
         # Generate legend handles
@@ -313,12 +336,12 @@ class BasePlot:
             loc=loc,
             handler_map={tuple: utils.UniqueHandlerTuple(ndivide=None)}
         )
-        legend_offset = float(np.array(self.legend.get_window_extent())[0, 0])
+        legend_range = np.array(self.legend.get_window_extent())[:, 0]
 
         # Recreate legend if it overflows the figure with more rows
-        if legend_offset < 0:
+        if legend_range[0] < 0:
             self.legend.remove()
-            rows = np.abs(legend_offset) * 2 // fig_size + 2
+            rows = np.ceil((legend_range[1] - legend_range[0]) * rows / fig_size)
             self.create_legend(rows=rows, loc=loc)
 
         # Update handles to remove transparency if there isn't any hatching and set point size
@@ -328,6 +351,9 @@ class BasePlot:
 
             if isinstance(handle, PathCollection):
                 handle.set_sizes([100])
+
+            if isinstance(handle, Line2D):
+                handle.set_linewidth(2)
 
     def plot_density(
             self,
@@ -408,6 +434,76 @@ class BasePlot:
         self.plots[-1]._hatch_color = tuple(to_rgba_array(colour, self._alpha)[0])
         self.plots.append(axis.contour(*contour, levels, colors=colour, **kwargs))
 
+    def plot_grid(
+            self,
+            matrix: ndarray,
+            axis: Axes,
+            diverge: bool = False,
+            precision: int = 3,
+            x_labels: list[str] | None = None,
+            y_labels: list[str] | None = None,
+            range_: tuple[float, float] | None = None) -> None:
+        """
+        Plots a grid of values using an image plot
+
+        Parameters
+        ----------
+        matrix : (N,M) ndarray
+            2D array of values to plot
+        axis : Axes
+            Axis to plot on
+        diverge : bool, default = False
+            If the colour map should diverge or be sequential
+        precision : int, default = 3
+            Number of decimal places to display
+        x_labels : list[str] | None, default = None
+            Labels for the x-axis
+        y_labels : list[str] | None, default = None
+            Labels for the y-axis
+        range_ : tuple[float, float] | None, default = (min(matrix), max(matrix))
+            Range of values for colouring, if None, the range will be the minimum and maximum of the
+            matrix
+        """
+        i: int
+        j: int
+        value: float
+        colour: str
+        range_ = range_ or (np.min(matrix), np.max(matrix))
+        self.plots.append(axis.imshow(
+            matrix,
+            vmin=range_[0],
+            vmax=range_[1],
+            cmap='PiYG' if diverge else 'Blues',
+        ))
+        axis.grid(False)
+
+        if x_labels:
+            axis.set_xticks(np.arange(len(x_labels)), x_labels, fontsize=utils.MINOR)
+
+        if y_labels:
+            axis.set_yticks(
+                np.arange(len(y_labels)),
+                y_labels,
+                rotation=90,
+                va='center',
+                fontsize=utils.MINOR,
+            )
+
+        for (i, j), value in zip(np.ndindex(matrix.shape), matrix.flatten()):
+            if diverge:
+                colour = 'w' if (np.abs(value) >
+                                 np.abs(range_[0] + 7 * (range_[1] - range_[0]) / 8)) else 'k'
+            else:
+                colour = 'w' if value > range_[0] + (range_[1] - range_[0]) / 2 else 'k'
+
+            axis.text(
+                j, i, f'{value:.{precision}f}',
+                ha='center',
+                va='center',
+                color=colour,
+                fontsize=utils.MINOR,
+            )
+
     def plot_histogram(
             self,
             colour: str,
@@ -449,6 +545,9 @@ class BasePlot:
         y_data: ndarray
         kernel: gaussian_kde
         axis.ticklabel_format(axis='y', scilimits=(-2, 2))
+
+        if orientation not in {'vertical', 'horizontal'}:
+            raise ValueError(f"Orientation ({orientation}) must be 'vertical' or 'horizontal'")
 
         if log:
             axis.set_xscale('log')
@@ -504,14 +603,14 @@ class BasePlot:
                 np.logspace(*np.log10(range_), self._bins) if log else self._bins,
             )
             y_data = y_data / np.max(y_data)
-            axis.bar(
+            (axis.bar if orientation == 'vertical' else axis.barh)(
                 x_data[:-1],
                 y_data,
+                np.diff(x_data),
                 align='edge',
-                width=np.diff(x_data),
-                alpha=self._alpha_2d,
                 color=colour,
-                **kwargs
+                alpha=self._alpha_2d,
+                **kwargs,
             )
         else:
             self.plots.append(axis.hist(
@@ -554,6 +653,7 @@ class BasePlot:
         **kwargs
             Optional keyword arguments passed to _plot_histogram and _plot_density
         """
+        assert isinstance(self.axes, ndarray)
         i: int
         j: int
         x_data: ndarray
@@ -564,7 +664,7 @@ class BasePlot:
         axis: Axes
 
         if markers is None:
-            markers = np.array(['.']) * len(data)
+            markers = np.array(['.'] * len(data))
 
         data = np.swapaxes(data, 0, 1)
 
@@ -611,7 +711,7 @@ class BasePlot:
                             marker=marker,
                         ))
 
-                    if self._density:
+                    if self._density and len(np.unique(x_data)) > 1 and len(np.unique(y_data)) > 1:
                         self.plot_density(
                             colour,
                             np.stack((x_data, y_data), axis=1),

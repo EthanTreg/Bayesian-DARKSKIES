@@ -67,34 +67,3 @@ def open_config(
         config = yaml.safe_load(file)[key]
 
     return config_path, config
-
-
-def progress_bar(i: int, total: int, text: str = '', **kwargs: Any) -> None:
-    """
-    Terminal progress bar
-
-    Parameters
-    ----------
-    i : int
-        Current progress
-    total : int
-        Completion number
-    text : str, default = ''
-        Optional text to place at the end of the progress bar
-
-    **kwargs
-        Optional keyword arguments to pass to print
-    """
-    filled: int
-    length: int = 50
-    percent: float
-    bar_fill: str
-    i += 1
-
-    filled = int(i * length / total)
-    percent = i * 100 / total
-    bar_fill = '█' * filled + '-' * (length - filled)
-    print(f'\rProgress: |{bar_fill}| {int(percent)}%\t{text}\t', end='', **kwargs)
-
-    if i == total:
-        print()

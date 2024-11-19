@@ -22,13 +22,13 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    epochs: 60
+    epochs: 150
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 0
+    network-save: 2100
     # File number to load the network state
-    network-load: 20
+    network-load: 0
     # Learning rate for training the network
     learning-rate: 1.0e-4
     # Validation dataset fraction
@@ -36,21 +36,23 @@ main:
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'Ellipticals proportional'
+    network-description: 'BAHAMAS, Flamingo High Unknown'
     # Labels for the classes
     class-labels:
-      - 'BAHAMAS-0 Low'
       - 'BAHAMAS-0'
-      - 'BAHAMAS-0 High'
       - 'BAHAMAS-0.1'
       - 'BAHAMAS-0.3'
       - 'BAHAMAS-1'
-      - 'DARKSKIES-0.01'
-      - 'Flamingo-0'
-      - 'TNG-0'
-      - 'DARKSKIES-0.05 (U)'
-      - 'DARKSKIES-0.1 (U)'
-      - 'DARKSKIES-0.2 (U)'
+#      - 'BAHAMAS-0 Low'
+#      - 'BAHAMAS-0 High'
+      - 'Flamingo High'
+#      - 'Flamingo'
+#      - 'DARKSKIES-0.01'
+#      - 'Flamingo-0'
+#      - 'TNG-0'
+#      - 'DARKSKIES-0.05 (U)'
+#      - 'DARKSKIES-0.1 (U)'
+#      - 'DARKSKIES-0.2 (U)'
 #      - '0.551'
 #      - '0.549'
 #      - '0.55'

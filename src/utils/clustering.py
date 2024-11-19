@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 from netloader.networks import BaseNetwork
 from netloader.utils.utils import label_change
-from netloader.utils.transforms import BaseTransform
+from netloader.transforms import BaseTransform
 from netloader.layers.utils import BaseLayer
 from netloader.network import Network
 from netloader import layers
@@ -68,6 +68,13 @@ class CosineSimilarity(BaseNetwork):
         )
         self.margin: float = 0
         self.header['preds'] = None
+
+    def __getstate__(self) -> dict[str, Any]:
+        return super().__getstate__() | {'margin': self.margin}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        super().__setstate__(state)
+        self.margin = state['margin']
 
     def _loss(self, in_data: Tensor, target: Tensor) -> float:
         """
@@ -214,6 +221,31 @@ class ClusterEncoder(BaseNetwork):
         self.center_step: Tensor = torch.ones(len(self.classes), device=self._device)
 
         self.header |= {'probs': None, 'latent': None}
+
+    def __getstate__(self) -> dict[str, Any]:
+        return super().__getstate__() | {
+            'unknown': self._unknown,
+            'method': self._method,
+            'cluster_centers': self._cluster_centers,
+            'sim_loss': self.sim_loss,
+            'class_loss': self.class_loss,
+            'compact_loss': self.compact_loss,
+            'distance_loss': self.distance_loss,
+            'classes': self.classes,
+            'center_step': self.center_step,
+        }
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        super().__setstate__(state)
+        self._unknown = state['unknown']
+        self._method = state['method']
+        self._cluster_centers = state['cluster_centers']
+        self.sim_loss = state['sim_loss']
+        self.class_loss = state['class_loss']
+        self.compact_loss = state['compact_loss']
+        self.distance_loss = state['distance_loss']
+        self.classes = state['classes']
+        self.center_step = state['center_step']
 
     def _init_clusters(self, latent_dim: int) -> None:
         """
@@ -528,9 +560,17 @@ class CompactClusterEncoder(ClusterEncoder):
         self._steps: int = steps
         self.sim_loss: float = 0  # Unused
         self.compact_loss: float = 0  # Unused
-        self.class_loss: float = 0.1
-        self.cluster_loss: float = 1
-        self.distance_loss: float = 10
+        self.class_loss: float = 0.2
+        self.cluster_loss: float = 2.2
+        self.distance_loss: float = 1
+
+    def __getstate__(self) -> dict[str, Any]:
+        return super().__getstate__() | {'steps': self._steps, 'cluster_loss': self.cluster_loss}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        super().__setstate__(state)
+        self._steps = state['steps']
+        self.cluster_loss = state['cluster_loss']
 
     def _label_propagation_cluster_loss(self, latent: Tensor, one_hot: Tensor) -> Tensor:
         """

@@ -10,7 +10,7 @@ from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Subset
 from netloader.utils.utils import get_device
 from torchvision.transforms import v2
-from numpy import ndarray, floating
+from numpy import ndarray
 
 
 class DarkDataset(Dataset):
@@ -19,20 +19,33 @@ class DarkDataset(Dataset):
 
     Attributes
     ----------
-    ids : ndarray
-        IDs for each cluster in the dataset
-    sims : ndarray
-        Simulation ID for each cluster in the dataset
-    labels : Tensor
-        Supervised labels for dark matter cross-section for each cluster
-    images : Tensor
-        Lensing and X-ray maps for each cluster
+    ids : (N) ndarray
+        IDs for N clusters in the dataset
+    sims : (N) ndarray
+        Simulation ID for N clusters in the dataset
+    mass : (N) ndarray
+        Mass for N clusters in the dataset
+    names : (N) ndarray
+        Names for N clusters in the dataset
+    stellar_frac : (N) ndarray
+        Stellar fractions for N clusters in the dataset
+    norms : (N,C) ndarray
+        Normalisations for C channels of the images for N clusters in the dataset
+    labels : (N,1) ndarray | (N,1) Tensor
+        Supervised labels for dark matter cross-section for N clusters
+    images : (N,C,H,W) ndarray | (N,C,H,W) Tensor
+        Lensing, X-ray and stellar maps of height H and width W for N clusters
     aug : Compose
         Image augmentation transform
     idxs : ndarray, default = None
         Data indices for random training & validation datasets
     """
-    def __init__(self, data_dir: str, sims: list[str], unknown_sims: list[str]):
+    def __init__(
+            self,
+            data_dir: str,
+            sims: list[str],
+            unknown_sims: list[str],
+            names: list[str] | None = None):
         """
         Parameters
         ----------
@@ -43,42 +56,68 @@ class DarkDataset(Dataset):
         unknown_sims : list[string]
             Which simulations to load that are unknown
         """
+        self._unknown_factor: float = 1e-3
         self.unknown: list[str] = unknown_sims
         self.ids: ndarray = np.array([])
         self.sims: ndarray = np.array([])
+        self.mass: ndarray = np.array([])
+        self.names: ndarray = np.array([])
+        self.norms: ndarray = np.array([])
         self.stellar_frac: ndarray = np.array([])
         self.idxs: ndarray | None = None
         self.images: ndarray | Tensor
         self.labels: ndarray | Tensor = np.array([])
         label: float
         log_0: float = 4e-2
+        sim: str
+        name: str
         labels: dict[str, ndarray | list[float]]
+        norms_: list[ndarray] = []
         images_: list[ndarray] = []
         file: BinaryIO
+        sims_: ndarray
         images: ndarray
 
-        for sim in np.unique(sims + self.unknown):
+        sims_ = np.array(sims + self.unknown)[np.sort(np.unique(
+            sims + self.unknown,
+            return_index=True,
+        )[1])]
+        names = names or sims_.tolist()
+
+        for name, sim in zip(names, sims_):
             # Load data from file
             with open(f"{data_dir}{sim.lower().replace('+', '_')}.pkl", 'rb') as file:
                 labels, images = pickle.load(file)
 
+            if 'darkskies' in sim.lower() or 'flamingo' in sim.lower():
+                labels['norms'] *= 1e10 * 20e-3 ** 2
+
+            if 'bahamas' in sim.lower():
+                labels['norms'] *= 20e-3 ** 2
+
             # Remove stellar maps & create labels
-            images_.append(images[:, :2])
+            images_.append(images[:, :3])
+            norms_.append(labels['norms'])
             label = labels['label'][0]
 
-            # Ensure unknown labels are the smallest & there are no zero labels
-            if sim in self.unknown:
-                label = 1e-3
-            elif label == 0:
+            # Ensure there are no zero labels
+            if label == 0:
                 label = log_0
 
             # Prevent duplicate labels
-            while label in np.unique(self.labels) and label != 0:
+            while np.isin(
+                    [label, label * self._unknown_factor],
+                    np.unique(self.labels),
+            ).any() and label != 0:
                 label *= 0.999
 
+            # Ensure unknown labels are the smallest
+            if sim in self.unknown:
+                label *= self._unknown_factor
+
             self.labels = np.concatenate((self.labels, np.ones(len(images)) * label))
-            # self.labels = np.concatenate((self.labels, labels['label']))
             self.sims = np.concatenate((self.sims, [sim] * len(images)))
+            self.names = np.concatenate((self.names, [name] * len(images)))
 
             # Create IDs
             if 'ClusterID' in labels:
@@ -89,25 +128,27 @@ class DarkDataset(Dataset):
                     np.arange(len(images)) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
                 ))
 
-            # if 'props' in labels and 'SO_Mass_500_rhocrit' in labels['props']:
+            # Calculate mass and stellar fraction within 100 kpc
+            mask = np.where(np.add(*[array ** 2 for array in np.meshgrid(
+                np.arange(images.shape[-2]) - images.shape[-2] // 2 + 0.5,
+                np.arange(images.shape[-1]) - images.shape[-1] // 2 + 0.5,
+            )]) < 25, 1, 0)
+            self.mass = np.concatenate((
+                self.mass,
+                np.sum(images[:, 0] * mask, axis=(-2, -1)) * labels['norms'][:, 0],
+            ))
+
             if images.shape[1] == 3:
-                mask = np.where(np.add(*[array ** 2 for array in np.meshgrid(
-                    np.arange(images.shape[-2]) - images.shape[-2] // 2 + 0.5,
-                    np.arange(images.shape[-1]) - images.shape[-1] // 2 + 0.5,
-                )]) < 25, 1, 0)
-                # self.stellar_frac = np.concatenate((
-                #     self.stellar_frac,
-                #     np.array(labels['props']['SO_Mass_star_500_rhocrit']) /
-                #     np.array(labels['props']['SO_Mass_500_rhocrit']),
-                # ))
                 self.stellar_frac = np.concatenate((
                     self.stellar_frac,
-                    (np.sum(images[:, -1] * mask, axis=(-2, -1)) /
-                     np.sum(images[:, 0] * mask, axis=(-2, -1))),
+                    (np.sum(images[:, -1] * mask, axis=(-2, -1)) * labels['norms'][:, -1] /
+                     (np.sum(images[:, 0] * mask, axis=(-2, -1)) * labels['norms'][:, 0])),
                 ))
             else:
                 self.stellar_frac = np.concatenate((self.stellar_frac, np.zeros(len(images))))
 
+
+        # self.norms = np.concatenate(norms_)
         self.images = np.concatenate(images_)
         self.labels = self.labels[:, np.newaxis]
 
@@ -135,7 +176,26 @@ class DarkDataset(Dataset):
         tuple[ndarray, Tensor, Tensor, ndarray]
             Cluster ID, cluster label, and augmented image map
         """
-        return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
+        return self.ids[idx], self.labels[idx], self.aug(self.images[idx, :2])
+
+    def correct_unknowns(self, labels: ndarray) -> ndarray:
+        """
+        Rescales the unknown labels to their correct values
+
+        Parameters
+        ----------
+        labels : (N) ndarray
+            N labels with unknown values to be corrected
+
+        Returns
+        -------
+        (N) ndarray
+            Corrected labels
+        """
+        for label in np.unique(labels)[:len(self.unknown)]:
+            labels[labels == label] /= self._unknown_factor
+
+        return labels
 
 
 class ClusterDataset(Dataset):
