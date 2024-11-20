@@ -176,7 +176,11 @@ def main(config_path: str = '../config.yaml'):
         '$m_b$',
     ]
     known = [
+        'bahamas_cdm_low',
         'bahamas_cdm',
+        'bahamas_cdm_hi',
+        # 'flamingo_low'
+        'flamingo',
         'bahamas_0.1',
         'bahamas_0.3',
         'bahamas_1',
@@ -271,8 +275,6 @@ def main(config_path: str = '../config.yaml'):
         y_labels=param_names,
         colours=colours,
     ).savefig(plots_dir, name='test')
-
-    # Plot predictions
     plots.PlotParamPairs(
         params,
         density=True,
@@ -286,6 +288,8 @@ def main(config_path: str = '../config.yaml'):
         x_labels=param_names,
         y_labels=param_names,
     ).savefig(plots_dir, name='params_pearson')
+
+    # Plot predictions
     plots.PlotPerformance(
         np.array(net.losses),
         x_label='Epoch',
@@ -293,8 +297,9 @@ def main(config_path: str = '../config.yaml'):
         labels=['Train', 'Validation'],
         colours=colours,
     ).savefig(plots_dir, 'losses')
+    pca = PCA(n_components=4).fit(data['latents'][data['targets'] != np.unique(data['targets'])])
     plots.PlotClusters(
-        PCA(n_components=4).fit_transform(data['latent']),
+        pca.transform(data['latent']),
         data['targets'],
         density=True,
         labels=labels,

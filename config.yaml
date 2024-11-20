@@ -22,31 +22,32 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    epochs: 150
+    epochs: 200
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 2100
+    network-save: 2105
     # File number to load the network state
-    network-load: 0
+    network-load: 2105
     # Learning rate for training the network
     learning-rate: 1.0e-4
     # Validation dataset fraction
-    validation-fraction: 0.15
+    validation-fraction: 0.2
     # File name for network model to load
     network-name: *network_name
     # Network description
-    network-description: 'BAHAMAS, Flamingo High Unknown'
+    network-description: 'BAHAMAS + baryons + Flamingo, Flamingo High Unknown'
     # Labels for the classes
     class-labels:
+#      - 'Flamingo Low'
+      - 'BAHAMAS-0 Low'
       - 'BAHAMAS-0'
+      - 'BAHAMAS-0 High'
+      - 'Flamingo'
       - 'BAHAMAS-0.1'
       - 'BAHAMAS-0.3'
       - 'BAHAMAS-1'
-#      - 'BAHAMAS-0 Low'
-#      - 'BAHAMAS-0 High'
       - 'Flamingo High'
-#      - 'Flamingo'
 #      - 'DARKSKIES-0.01'
 #      - 'Flamingo-0'
 #      - 'TNG-0'
@@ -74,7 +75,7 @@ main:
     distributions-path: '../data/parameter_distributions.csv'
     # Directory to save plots
     plots-directory: *plots-directory
-# optimise.py config file
+# optimise.py and hyperparam_search.py config file
 optimise:
   # Variables for optimising the network
   optimisation:
@@ -87,9 +88,9 @@ optimise:
     # File number to load the network state
     network-load: 0
     # File number to save the study progres
-    study-save: 6
+    study-save: 7
     # File number to load the study state
-    study-load: 6
+    study-load: 0
     # Number of epochs before pruning can occur
     warmup: 10
     # Number of epochs to average over when reporting metrics

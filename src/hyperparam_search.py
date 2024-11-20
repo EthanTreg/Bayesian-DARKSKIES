@@ -131,23 +131,26 @@ def main(config_path: str = '../config.yaml') -> None:
         Path to the configuration file
     """
     i: int
-    j: int
     idx: int
     dim: int
-    run_idx: int
     study_save: int
     repeats: int = 5
-    initial_idx: int = 0
+    run_idx: int = 0
     study_dir: str
-    latent_dims: list[int] = [1, 2, 3, 7, 10, 20, 50, 100]
+    sim_dims: list[int]
     sim: list[str]
     current_sims: list[str] = []
+    latent_dims: list[list[int]] = [
+        *[[4, 5, 6, 8, 9, 12, 14, 16, 18]] * 2,
+        *[[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 50, 100]] * 2,
+    ]
     sims: list[list[str]] = [
-        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1.0'],
-        ['CDM_low+baryons', 'CDM_hi+baryons'],
-        ['darkskies_0.01', 'darkskies_0.05', 'darkskies_0.1', 'darkskies_0.2'],
+        ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1'],
+        ['bahamas_cdm_low', 'bahamas_cdm_hi'],
         ['flamingo'],
-        ['tng'],
+        ['flamingo_low', 'flamingo_hi'],
+        # ['darkskies_0.01', 'darkskies_0.05', 'darkskies_0.1', 'darkskies_0.2'],
+        # ['tng'],
     ]
     losses: tuple[float, float]
     loaders: tuple[DataLoader, DataLoader]
@@ -170,16 +173,10 @@ def main(config_path: str = '../config.yaml') -> None:
         with open(f'{study_dir}study_{study_load}.pkl', 'rb') as file:
             data = pickle.load(file)
 
-        initial_idx = int(list(data.keys())[-1]) + 1
-
     # Loop through sims
-    for i, sim in enumerate(sims):
+    for i, (sim, sim_dims) in enumerate(zip(sims, latent_dims)):
         print(f'Sim Test {i + 1}/{len(sims)}', flush=True)
         current_sims += sim
-
-        if initial_idx and all(sim in data[initial_idx - 1]['sims'] for sim in current_sims):
-            continue
-
         loaders, net, _ = init(config=main_config, known=current_sims)
         net.save_path = config['output']['network']
         net._verbose = None
@@ -192,12 +189,20 @@ def main(config_path: str = '../config.yaml') -> None:
                 break
 
         # Loop through latent dimensions
-        for j, dim in enumerate(latent_dims):
-            run_idx = initial_idx + i * len(latent_dims) + j
-            data[run_idx] = {'latent_dim': dim, 'sims': current_sims, 'losses': [], 'nets': []}
+        for dim in sim_dims:
+            if (
+                    run_idx in data and
+                    all(sim in data[run_idx]['sims'] for sim in current_sims) and
+                    dim <= data[run_idx]['latent_dim'] and
+                    len(data[run_idx]['losses']) >= repeats):
+                continue
+
+            if len(data[run_idx]['losses']) >= repeats:
+                run_idx += 1
+                data[run_idx] = {'latent_dim': dim, 'sims': current_sims, 'losses': [], 'nets': []}
 
             # Repeat n times
-            for _ in range(repeats):
+            for _ in range(repeats - len(data[run_idx]['losses'])):
                 *losses, net = _objective(idx, dim, loaders)
                 data[run_idx]['losses'].append(losses)
                 data[run_idx]['nets'].append(net)

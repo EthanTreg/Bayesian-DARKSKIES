@@ -95,6 +95,10 @@ class DarkDataset(Dataset):
             if 'bahamas' in sim.lower():
                 labels['norms'] *= 20e-3 ** 2
 
+            if 'flamingo' in sim.lower():
+                images = np.delete(images, 1, axis=1)
+                labels['norms'] = np.delete(labels['norms'], 1, axis=1)
+
             # Remove stellar maps & create labels
             images_.append(images[:, :3])
             norms_.append(labels['norms'])
@@ -148,7 +152,7 @@ class DarkDataset(Dataset):
                 self.stellar_frac = np.concatenate((self.stellar_frac, np.zeros(len(images))))
 
 
-        # self.norms = np.concatenate(norms_)
+        self.norms = np.concatenate(norms_)
         self.images = np.concatenate(images_)
         self.labels = self.labels[:, np.newaxis]
 
