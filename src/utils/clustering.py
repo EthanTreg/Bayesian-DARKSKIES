@@ -198,7 +198,7 @@ class ClusterEncoder(BaseNetwork):
         in_transform : BaseTransform, default = None
             Transformation for the input data
         """
-        net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
+        # net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
         super().__init__(
             save_num,
             states_dir,
@@ -336,7 +336,8 @@ class ClusterEncoder(BaseNetwork):
         known_classes: Tensor = self.classes[self._unknown:]
 
         if len(known_classes) > 1:
-            centers = self.net.scale * self._cluster_centers[self._unknown:, 0]
+            # centers = self.net.scale * self._cluster_centers[self._unknown:, 0]
+            centers = self._cluster_centers[self._unknown:, 0]
             return nn.MSELoss()(centers, known_classes)
 
         return torch.tensor(0., device=self._device)

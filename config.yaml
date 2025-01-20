@@ -26,9 +26,9 @@ main:
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 2105
+    network-save: 0
     # File number to load the network state
-    network-load: 2105
+    network-load: 0
     # Learning rate for training the network
     learning-rate: 1.0e-4
     # Validation dataset fraction
@@ -81,8 +81,8 @@ optimise:
   optimisation:
     # Number of epochs to train the network for
     epochs: 100
-    # Number of trials to run
-    trials: 50
+    # Number of repeats to run
+    repeats: 5
     # File number to save the network progres
     network-save: 0
     # File number to load the network state

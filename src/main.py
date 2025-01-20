@@ -63,7 +63,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             transforms.NumpyTensor(),
             transforms.Log(),
         )
-        param_transform.append(transforms.Normalise(param_transform(dataset.labels[np.isin(
+        param_transform.append(transforms.Normalise(data=param_transform(dataset.labels[np.isin(
             dataset.labels,
             np.unique(dataset.labels)[len(dataset.unknown):],
         )]), mean=False))
