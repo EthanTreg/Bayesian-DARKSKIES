@@ -8,7 +8,7 @@ from typing import Any, BinaryIO
 
 import torch
 import numpy as np
-from torch import optim, nn
+from torch import optim
 from torch.nn import Module
 from torch.utils.data import DataLoader
 from netloader.utils.utils import get_device, progress_bar
@@ -65,7 +65,7 @@ def _objective(
     smooth = config['optimisation']['smooth-number']
     learning_rate = config['optimisation']['learning-rate']
     name = config['optimisation']['network-name']
-    net = torch.load(config['output']['base-network'])
+    net = torch.load(config['output']['base-network'], weights_only=True)
 
     # Load network configuration file
     _update_net(idx, latent_dim, name, nets_dir)
@@ -78,7 +78,7 @@ def _objective(
         [len(torch.unique(loaders[1].dataset.dataset.labels))],
     )
     net._epoch = 0
-    net.net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
+    # net.net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
     net.optimiser = optim.AdamW(net.net.parameters(), lr=learning_rate)
     net.scheduler = optim.lr_scheduler.ReduceLROnPlateau(net.optimiser, factor=0.5)
     net.to(device)
@@ -133,16 +133,15 @@ def main(config_path: str = '../config.yaml') -> None:
     i: int
     idx: int
     dim: int
+    repeats: int
     study_save: int
-    repeats: int = 5
     run_idx: int = 0
     study_dir: str
     sim_dims: list[int]
     sim: list[str]
     current_sims: list[str] = []
     latent_dims: list[list[int]] = [
-        *[[4, 5, 6, 8, 9, 12, 14, 16, 18]] * 2,
-        *[[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 50, 100]] * 2,
+        *[[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 50, 100]] * 4,
     ]
     sims: list[list[str]] = [
         ['bahamas_cdm', 'bahamas_0.1', 'bahamas_0.3', 'bahamas_1'],
@@ -164,7 +163,9 @@ def main(config_path: str = '../config.yaml') -> None:
     _, config = open_config('optimise', config_path)
     _, main_config = open_config('main', config_path)
     main_config['training'] |= config['optimisation']
+    main_config['training']['load_num'] = 0
 
+    repeats = config['optimisation']['repeats']
     study_save = config['optimisation']['study-save']
     study_load = config['optimisation']['study-load']
     study_dir = config['data']['study-directory']
@@ -190,15 +191,9 @@ def main(config_path: str = '../config.yaml') -> None:
 
         # Loop through latent dimensions
         for dim in sim_dims:
-            if (
-                    run_idx in data and
-                    all(sim in data[run_idx]['sims'] for sim in current_sims) and
-                    dim <= data[run_idx]['latent_dim'] and
-                    len(data[run_idx]['losses']) >= repeats):
-                continue
+            print(f'Dim: {dim}')
 
-            if len(data[run_idx]['losses']) >= repeats:
-                run_idx += 1
+            if run_idx not in data:
                 data[run_idx] = {'latent_dim': dim, 'sims': current_sims, 'losses': [], 'nets': []}
 
             # Repeat n times
@@ -210,6 +205,8 @@ def main(config_path: str = '../config.yaml') -> None:
                 if study_save:
                     with open(f'{study_dir}study_{study_save}.pkl', 'wb') as file:
                         pickle.dump(data, file)
+
+            run_idx += 1
 
 
 if __name__ == "__main__":
