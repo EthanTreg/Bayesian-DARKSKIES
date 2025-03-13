@@ -7,6 +7,7 @@ from typing import Any
 import torch
 import numpy as np
 import pandas as pd
+import sciplots as plots
 import netloader.networks as nets
 from netloader import transforms
 from netloader.network import Network
@@ -14,7 +15,6 @@ from netloader.utils.utils import get_device, save_name
 from torch.utils.data import DataLoader
 from sklearn.decomposition import PCA
 
-from src import plots
 from src.utils import analysis
 from src.utils.utils import open_config
 from src.utils.data import DarkDataset, loader_init
@@ -45,25 +45,27 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     load_num = config['training']['network-load']
     learning_rate = config['training']['learning-rate']
     name = config['training']['network-name']
-    description = config['training']['network-description']
+    description = config['training']['description']
     networks_dir = config['data']['network-configs-directory']
     states_dir = config['output']['network-states-directory']
     device = get_device()[1]
 
     # Initialise network
     if load_num:
-        net = nets.load_net(load_num, states_dir, name)
-        net.description = description
-        net.save_path = save_name(save_num, states_dir, name)
-        transform = net.in_transform
-        param_transform = net.header['targets']
+        net = nets.load_net(load_num, states_dir, name, weights_only=False)
+        net.save_path = save_name(save_num, states_dir, name) if save_num else ''
+        transform = net.transforms['inputs']
+        param_transform = net.transforms['targets']
     else:
-        transform = transforms.NumpyTensor()
+        transform = transforms.MultiTransform(
+            transforms.NumpyTensor(),
+            transforms.Index(0, dataset.images.shape[1:], slice(3)),
+        )
         param_transform = transforms.MultiTransform(
             transforms.NumpyTensor(),
             transforms.Log(),
         )
-        param_transform.append(transforms.Normalise(param_transform(dataset.labels[np.isin(
+        param_transform.append(transforms.Normalise(data=param_transform(dataset.labels[np.isin(
             dataset.labels,
             np.unique(dataset.labels)[len(dataset.unknown):],
         )]), mean=False))
@@ -89,7 +91,6 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     # Initialise datasets
     dataset.images = transform(dataset.images)
     dataset.labels = param_transform(dataset.labels)
-    net.encoder_loss = 1
     return net.to(device)
 
 
@@ -130,7 +131,7 @@ def init(
         unknown = []
 
     # Fetch dataset & network
-    dataset = DarkDataset(data_dir, known, unknown, names=config['training']['class-labels'])
+    dataset = DarkDataset(data_dir, known, unknown)
     net = net_init(dataset, config)
 
     # Initialise data loaders
@@ -153,20 +154,12 @@ def main(config_path: str = '../config.yaml'):
     net_epochs = config['training']['epochs']
     states_dir = config['output']['network-states-directory']
     plots_dir = config['output']['plots-directory']
-    colours = [
-        '#912FEB',
-        '#EB2FAE',
-        '#CE2FEB',
-        '#542FEB',
-        '#EB2F3D',
-        '#DA7CEB',
-        '#F0BA29',
-        '#F0EA29',
-        '#F0D129',
-        '#F0A229',
-        '#29F02B',
-        '#29F0B2',
-    ]
+    bahamas_colours = ['#0049E0', '#0090E0', '#00D7E0', '#2CDEE6', '#00E09E', '#00E051'][:-2]
+    bahamas_agn_colours = ['#F54EDF', '#5D4EF5']
+    bahamas_dmo = ['#00FA8F', '#01FB3D', '#89FA00']
+    flamingo_colours = ['#FABD00', '#FA2100', '#FA7700']
+    flamingo_test = ['#FA07A0']
+    colours = ['k'] + flamingo_test + bahamas_dmo + flamingo_colours[1:2] + bahamas_colours
     param_names = [
         r'$\sigma_{\rm DM}$',
         '$M$',
@@ -176,16 +169,23 @@ def main(config_path: str = '../config.yaml'):
         '$m_b$',
     ]
     known = [
-        'bahamas_cdm_low',
-        'bahamas_cdm',
-        'bahamas_cdm_hi',
-        # 'flamingo_low'
         'flamingo',
+        # 'flamingo_low',
+        # 'flamingo_hi',
+        'bahamas_cdm',
+        # 'bahamas_cdm_low',
+        # 'bahamas_cdm_hi',
         'bahamas_0.1',
         'bahamas_0.3',
         'bahamas_1',
     ]
-    unknown = ['flamingo_hi']
+    unknown = [
+        'noise',
+        'flamingo_low_test',
+        'bahamas_dmo_cdm',
+        'bahamas_dmo_0.1',
+        'bahamas_dmo_1',
+    ]
 
     # Create plots directory
     if not os.path.exists(plots_dir):
@@ -196,6 +196,7 @@ def main(config_path: str = '../config.yaml'):
         os.makedirs(states_dir)
 
     # Initialise network
+    torch.serialization.add_safe_globals([CompactClusterEncoder])
     loaders, net, dataset = init(known, config, unknown=unknown)
 
     # Train network
@@ -204,10 +205,20 @@ def main(config_path: str = '../config.yaml'):
     # Generate predictions
     data = net.predict(loaders[1])
     data['targets'] = dataset.correct_unknowns(data['targets'].squeeze())
+    data['targets'] = data['targets'].squeeze()
     labels = dataset.names[data['ids'][np.unique(
         data['targets'],
         return_index=True,
     )[1]].astype(int)]
+
+    # Plot performance
+    plots.PlotPerformance(
+        np.array(net.losses),
+        x_label='Epoch',
+        y_label='Loss',
+        labels=['Train', 'Validation'],
+        colours=['k', '#0049E0'],
+    ).savefig(plots_dir, 'losses')
 
     # Plot cluster profiles
     names, radii, total, x_ray, stellar = analysis.profiles(
@@ -246,17 +257,34 @@ def main(config_path: str = '../config.yaml'):
     # Plot distributions
     distributions = analysis.pred_distributions(
         data['targets'],
-        net.header['targets'](data['latent'], back=True)[:, 0],
+        net.transforms['targets'](data['latent'], back=True)[:, 0],
     )
-    plots.PlotDistributions(
+    plots.PlotDistribution(
+        distributions,
+        log=True,
+        norm=True,
+        y_axes=False,
+        density=True,
+        axis_pad=False,
+        bins=200,
+        x_label=r'Predicted $\sigma_{\rm DM}\ \left(\rm cm^2\ g^{-1}\right)$',
+        labels=labels,
+        colours=colours,
+        axis=True,
+        rows=len(labels),
+        loc='best',
+    ).savefig(plots_dir)
+    plot = plots.PlotDistributions(
         distributions,
         log=True,
         norm=True,
         y_axes=False,
         density=True,
         titles=labels,
-        data_twin=np.unique(data['targets']),
-    ).savefig(plots_dir, name='cluster_predictions')
+        colours=[bahamas_colours[0], flamingo_colours[-1]],
+    )
+    plot.plot_twin_data(np.unique(data['targets']) - 0.5)
+    plot.savefig(plots_dir)
 
     # Plot latent dims and physical params comparisons
     latents, params = analysis.phys_params(data, dataset.names, dataset.stellar_frac, dataset.mass)
@@ -270,11 +298,11 @@ def main(config_path: str = '../config.yaml'):
         latents,
         params,
         density=True,
-        labels=np.unique(dataset.names).tolist(),
+        labels=labels,
         x_labels=[f'Dim {i}' for i in range(latents[0].shape[-1])],
         y_labels=param_names,
         colours=colours,
-    ).savefig(plots_dir, name='test')
+    ).savefig(plots_dir)
     plots.PlotParamPairs(
         params,
         density=True,
@@ -290,28 +318,36 @@ def main(config_path: str = '../config.yaml'):
     ).savefig(plots_dir, name='params_pearson')
 
     # Plot predictions
-    plots.PlotPerformance(
-        np.array(net.losses),
-        x_label='Epoch',
-        y_label='Loss',
-        labels=['Train', 'Validation'],
-        colours=colours,
-    ).savefig(plots_dir, 'losses')
-    pca = PCA(n_components=4).fit(data['latents'][data['targets'] != np.unique(data['targets'])])
+    data['latent'][:, 0] *= 1e6
+    pca = PCA(n_components=4).fit(data['latent'][np.isin(
+        data['targets'],
+        np.unique(data['targets'])[net._unknown:],
+    )])
+    pca_transform = pca.transform(data['latent'])
+    pca_transform[:, 0] /= 1e6
+    data['latent'][:, 0] /= 1e6
     plots.PlotClusters(
-        pca.transform(data['latent']),
+        pca_transform,
         data['targets'],
         density=True,
         labels=labels,
-        # hatches=['-', '/', '\\', '|'],
+        alpha=0.1,
+        alpha_2d=0.2,
+        colours=colours,
+        rows=len(labels),
+        loc='upper right',
     ).savefig(plots_dir, name='PCA')
     plots.PlotClusters(
         data['latent'],
         data['targets'],
         density=True,
+        alpha=0.1,
+        alpha_2d=0.2,
         labels=labels,
-        # hatches=['-', '/', '\\', '|'],
-    ).savefig(plots_dir)
+        colours=colours,
+        rows=len(labels),
+        loc='upper right',
+    ).savefig(plots_dir, name='clusters')
     plots.PlotConfusion(labels, data['preds'], data['targets']).savefig(plots_dir)
 
     # Plot saliencies
@@ -322,8 +358,8 @@ def main(config_path: str = '../config.yaml'):
     pd.set_option('display.max_columns', 20)
     pd.set_option('display.width', 500)
     meds, means, stes = analysis.summary(data)[:3]
-    meds = net.header['targets'](meds, back=True)
-    means, stes = net.header['targets'](means, back=True, uncertainty=stes)
+    meds = net.transforms['targets'](meds, back=True)
+    means, stes = net.transforms['targets'](means, back=True, uncertainty=stes)
     print(pd.DataFrame(
         [meds, means, stes],
         index=['Medians', 'Means', 'STEs'],

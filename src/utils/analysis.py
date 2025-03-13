@@ -1,11 +1,215 @@
 """
 Functions to analyse the neural network
 """
+import os
 import pickle
 from typing import Any, BinaryIO
 
 import numpy as np
 from numpy import ndarray
+
+
+def _red_chi_acc(
+        dof: int,
+        values: ndarray,
+        target: ndarray,
+        errors: ndarray) -> tuple[ndarray, ndarray, ndarray, ndarray]:
+    """
+    Calculates the reduced chi square and mean squared error along the last dimension
+
+    Parameters
+    ----------
+    values : (...,L) ndarray
+        L predicted values
+    target : (...,L) ndarray
+        L target values
+    errors : (...,L) ndarray
+        L uncertainties
+
+    Returns
+    -------
+    tuple[(...) ndarray, (...) ndarray, (...) ndarray, (...) ndarray]
+        Reduced chi square, reduced chi square uncertainty, mean squared error, and mean squared
+        error uncertainty
+    """
+    red_chi = np.sum(((values - target) / errors) ** 2, axis=-1) / dof
+    red_chi_error = 2 * np.sqrt(red_chi / dof)
+    acc = np.mean((values - target) ** 2, axis=-1)
+    acc_error = 2 * np.sqrt(np.sum(((values - target) * errors) ** 2, axis=-1)) / values.shape[-1]
+    return red_chi, red_chi_error, acc, acc_error
+
+
+def batch_train_summary(
+        num: int,
+        dir_: str,
+        idx: int | None = None) -> dict[str, list[str] | list[ndarray] | ndarray]:
+    """
+    Generates a summary of batch training by averaging over the number of repeats
+
+    Parameters
+    ----------
+    num : int
+        Batch train number
+    dir_ : str
+        Directory of saved batch training data
+    idx : int | None, default = None
+        If a specific simulation should be indexed
+
+    Returns
+    -------
+    dict[str, list[str] | list[(S) ndarray] | (N,S) ndarray]
+        Batch train summary, where S is the number of simulations and N is the number of runs
+    """
+    value: list[ndarray] | dict[str, ndarray]
+    post_data: dict[str, list[str] | list[ndarray] | ndarray] = {
+        'means': [],
+        'weighted_means': [],
+        'stds': [],
+        'stes': [],
+        'errors': [],
+        'description': [],
+        'sims': [],
+        'unknown_sims': []
+    }
+
+    with open(os.path.join(dir_, f'batch_train_{num}.pkl'), 'rb') as file:
+        data = pickle.load(file)
+
+    for value in data.values():
+        post_data['means'].append(np.mean(value['means'], axis=0))
+        post_data['weighted_means'].append(np.average(
+            value['means'],
+            weights=value['stes'] ** -2,
+            axis=0,
+        ))
+        post_data['stds'].append(np.std(value['means'], axis=0, ddof=1))
+        post_data['stes'].append(post_data['stds'][-1] / np.sqrt(len(value['means'])))
+        post_data['errors'].append(np.sqrt(np.sum(value['stes'] ** -2, axis=0) ** -1))
+        post_data['sims'].append(value['sims'])
+
+        if 'description' in value:
+            post_data['description'].append(value['description'])
+
+        if 'unknown_sims' in value:
+            post_data['unknown_sims'].append(value['unknown_sims'])
+
+    for key, value in post_data.items():
+        if key not in {'description', 'sims', 'unknown_sims'}:
+            try:
+                if idx is not None:
+                    value = [val[idx] for val in value]
+
+                post_data[key] = np.stack(value)
+            except ValueError:
+                pass
+    return post_data
+
+
+def multi_batch_train_summary(
+        key_idx: int,
+        dir_: str,
+        range_: tuple[int, int],
+        idxs: list[int] | None = None,
+        target: ndarray | None = None) -> dict[str, list[str] | list[ndarray] | ndarray]:
+    """
+    Combines multiple batch training summaries by averaging over the number of repeats
+
+    Parameters
+    ----------
+    key_idx : int
+        Which run to index
+    dir_ : str
+        Directory of saved batch training data
+    range_ : tuple[int, int]
+        Range of batch training data numbers
+    idxs : list[int] | None, default = None
+        Which simulations to calculate the reduced chi square and mean squared error for
+    target : (S) ndarray | None, default = None
+        Target values for S simulations
+
+    Returns
+    -------
+    dict[str, list[str] | list[(S) ndarray] | (N,S) ndarray]
+        Batch training summaries, where S is the number of simulations and N is the number of runs
+    """
+    i: int
+    key: str
+    value: list[ndarray]
+    post_data: dict[str, list[str] | list[ndarray] | ndarray] = {
+        'means': [],
+        'weighted_means': [],
+        'stds': [],
+        'stes': [],
+        'errors': [],
+        'log_means': [],
+        'log_weighted_means': [],
+        'log_stds': [],
+        'log_stes': [],
+        'log_errors': [],
+        'targets': [],
+        'description': [],
+        'sims': [],
+        'unknown_sims': [],
+        'nets': [],
+    }
+
+    for i in range(*range_):
+        with open(os.path.join(dir_, f'batch_train_{i}.pkl'), 'rb') as file:
+            data = pickle.load(file)
+
+        batch_data = data[list(data.keys())[key_idx]]
+        post_data['means'].append(np.mean(batch_data['means'], axis=0))
+        post_data['weighted_means'].append(np.average(
+            batch_data['means'],
+            weights=batch_data['stes'] ** -2,
+            axis=0,
+        ))
+        post_data['stds'].append(np.std(batch_data['means'], axis=0, ddof=1))
+        post_data['stes'].append(post_data['stds'][-1] / np.sqrt(len(batch_data['means'])))
+        post_data['errors'].append(np.sqrt(np.sum(batch_data['stes'] ** -2, axis=0) ** -1))
+
+        post_data['log_means'].append(np.mean(batch_data['log_means'], axis=0))
+        post_data['log_weighted_means'].append(np.average(
+            batch_data['log_means'],
+            weights=batch_data['log_stes'] ** -2,
+            axis=0,
+        ))
+        post_data['log_stds'].append(np.std(batch_data['log_means'], axis=0, ddof=1))
+        post_data['log_stes'].append(
+            post_data['log_stds'][-1] / np.sqrt(len(batch_data['log_means'])),
+        )
+        post_data['log_errors'].append(np.sqrt(np.sum(batch_data['log_stes'] ** -2, axis=0) ** -1))
+
+        post_data['targets'].append(batch_data['targets'])
+        post_data['description'].append(
+            batch_data['description'] if 'description' in batch_data else '',
+        )
+        post_data['sims'].append(batch_data['sims'])
+        post_data['nets'].append(batch_data['nets'] if 'nets' in batch_data else None)
+
+        if 'unknown_sims' in batch_data:
+            post_data['unknown_sims'].append(batch_data['unknown_sims'])
+
+    for key, value in post_data.items():
+        if key not in {'description', 'sims', 'unknown_sims'}:
+            try:
+                post_data[key] = np.stack(value)
+            except ValueError:
+                pass
+
+    if target is not None:
+        assert isinstance(post_data['means'], ndarray)
+        assert isinstance(post_data['stes'], ndarray)
+        (post_data['red_chi'],
+         post_data['red_chi_error'],
+         post_data['acc'],
+         post_data['acc_error']) = _red_chi_acc(
+            post_data['means'].shape[-1],
+            post_data['means'][:, idxs or slice(idxs)],
+            target[idxs or slice(idxs)],
+            post_data['stes'][:, idxs or slice(idxs)],
+        )
+    return post_data
 
 
 def hyperparam_summary(path: str) -> tuple[list[int], ndarray, ndarray]:
@@ -122,7 +326,7 @@ def phys_params(
     stellar_frac = stellar_frac[data['ids'].astype(int)]
     mass = mass[data['ids'].astype(int)]
 
-    for sim in np.unique(names):
+    for sim in names[np.unique(data['targets'], return_index=True)[1]]:
         idxs = sim == names
 
         for key, value in sim_delta_tk.items():
@@ -169,8 +373,7 @@ def pred_distributions(targets: ndarray, preds: ndarray) -> list[ndarray]:
     distributions: list[ndarray] = []
 
     for target in np.unique(targets):
-        idxs = target == targets
-        distributions.append(preds[idxs])
+        distributions.append(preds[targets == target])
 
     return distributions
 
@@ -212,15 +415,15 @@ def profiles(
     images *= norms.reshape(*norms.shape, *[1] * (len(images.shape) - len(norms.shape)))
 
     centers = (images.shape[-2] // 2, images.shape[-1] // 2)
-    total = np.empty((len(np.unique(names)), np.ceil((min(centers) - 2) / 2)))
-    x_ray = np.empty((len(np.unique(names)), np.ceil((min(centers) - 2) / 2)))
-    stellar = np.empty((len(np.unique(names)), np.ceil((min(centers) - 2) / 2)))
+    total = np.empty((len(np.unique(names)), int(np.ceil((min(centers) - 2) / 2))))
+    x_ray = np.empty((len(np.unique(names)), int(np.ceil((min(centers) - 2) / 2))))
+    stellar = np.empty((len(np.unique(names)), int(np.ceil((min(centers) - 2) / 2))))
 
     for i, name in enumerate(np.unique(names)):
         idxs = name == names
 
         for radius in range(2, min(centers), 2):
-            j = (radius - 2) / 2
+            j = (radius - 2) // 2
             mask = np.where(np.sqrt(np.add(*[array ** 2 for array in np.meshgrid(
                 np.arange(images.shape[-2]) - images.shape[-2] // 2 + 0.5,
                 np.arange(images.shape[-1]) - images.shape[-1] // 2 + 0.5,

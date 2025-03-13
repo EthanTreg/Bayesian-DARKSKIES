@@ -4,7 +4,6 @@ Loads data and creates data loaders for network training
 import pickle
 from typing import BinaryIO
 
-import torch
 import numpy as np
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, Subset
@@ -44,16 +43,15 @@ class DarkDataset(Dataset):
             self,
             data_dir: str,
             sims: list[str],
-            unknown_sims: list[str],
-            names: list[str] | None = None):
+            unknown_sims: list[str]):
         """
         Parameters
         ----------
-        data_dir : string
+        data_dir : str
             Path to the directory with the cluster datasets
-        sims : list[string]
+        sims : list[str]
             Which simulations to load that are known
-        unknown_sims : list[string]
+        unknown_sims : list[str]
             Which simulations to load that are unknown
         """
         self._unknown_factor: float = 1e-3
@@ -70,7 +68,6 @@ class DarkDataset(Dataset):
         label: float
         log_0: float = 4e-2
         sim: str
-        name: str
         labels: dict[str, ndarray | list[float]]
         norms_: list[ndarray] = []
         images_: list[ndarray] = []
@@ -82,22 +79,19 @@ class DarkDataset(Dataset):
             sims + self.unknown,
             return_index=True,
         )[1])]
-        names = names or sims_.tolist()
 
-        for name, sim in zip(names, sims_):
+        if 'noise' in np.char.lower(sims):
+            raise ValueError('Noise cannot be treated as a known simulation')
+
+        for sim in sims_:
+            # Generate noise maps
+            if sim.lower() == 'noise':
+                self._generate_noise(images_, norms_)
+                continue
+
             # Load data from file
             with open(f"{data_dir}{sim.lower().replace('+', '_')}.pkl", 'rb') as file:
                 labels, images = pickle.load(file)
-
-            if 'darkskies' in sim.lower() or 'flamingo' in sim.lower():
-                labels['norms'] *= 1e10 * 20e-3 ** 2
-
-            if 'bahamas' in sim.lower():
-                labels['norms'] *= 20e-3 ** 2
-
-            if 'flamingo' in sim.lower():
-                images = np.delete(images, 1, axis=1)
-                labels['norms'] = np.delete(labels['norms'], 1, axis=1)
 
             # Remove stellar maps & create labels
             images_.append(images[:, :3])
@@ -121,7 +115,7 @@ class DarkDataset(Dataset):
 
             self.labels = np.concatenate((self.labels, np.ones(len(images)) * label))
             self.sims = np.concatenate((self.sims, [sim] * len(images)))
-            self.names = np.concatenate((self.names, [name] * len(images)))
+            self.names = np.concatenate((self.names, [labels['name']] * len(images)))
 
             # Create IDs
             if 'ClusterID' in labels:
@@ -172,7 +166,7 @@ class DarkDataset(Dataset):
 
         Parameters
         ----------
-        idx : integer
+        idx : int
             Index of the target cluster
 
         Returns
@@ -181,6 +175,36 @@ class DarkDataset(Dataset):
             Cluster ID, cluster label, and augmented image map
         """
         return self.ids[idx], self.labels[idx], self.aug(self.images[idx, :2])
+
+    def _generate_noise(self, images: list[ndarray], norms: list[ndarray]) -> None:
+        """
+        Generates random uniform noise images
+
+        Parameters
+        ----------
+        images : list[(N,...) ndarray]
+            List of dataset images with N images per simulation, requires at least 1 to base the
+             noise images shape off
+        norms : list[(N,...) ndarray]
+            List of normalisations with N normalisations per simulation, requires at least 1 to
+             base the noise norms shape off
+        """
+        if len(images) == 0:
+            raise ValueError('Cannot generate noise maps without existing data to base '
+                             'them off')
+
+        images.append(np.random.rand(*images[0].shape))
+        norms.append(np.ones_like(norms[0]))
+        self.labels = np.concatenate((
+            self.labels,
+            np.ones(len(images[0])) * self._unknown_factor ** 2,
+        ))
+        self.sims = np.concatenate((self.sims, ['noise'] * len(images[0])))
+        self.names = np.concatenate((self.names, ['Noise'] * len(images[0])))
+        self.ids = np.concatenate((
+            self.ids,
+            np.arange(len(images[0])) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
+        ))
 
     def correct_unknowns(self, labels: ndarray) -> ndarray:
         """
@@ -198,80 +222,7 @@ class DarkDataset(Dataset):
         """
         for label in np.unique(labels)[:len(self.unknown)]:
             labels[labels == label] /= self._unknown_factor
-
         return labels
-
-
-class ClusterDataset(Dataset):
-    """
-    A dataset object containing a cluster latent space and dark matter cross-sections for PyTorch
-    training
-
-    Attributes
-    ----------
-    ids : ndarray
-        IDs for each cluster in the dataset
-    labels : Tensor
-        Supervised labels for dark matter cross-section for each cluster
-    latent : Tensor
-        Cluster latent space for each cluster
-    transform : tuple[float, float], default = (0, 1)
-        Label min and range for 0-1 normalisation
-    idxs : ndarray, default = None
-        Data indices for random training & validation datasets
-    """
-    def __init__(self, data_path: str, sigmas: list[str]):
-        """
-        Parameters
-        ----------
-        data_path : string
-            Path to the data file with the cluster latent space
-        sigmas : list[string]
-            Cross-sections to use from the dataset
-        """
-        self.transform = (0, 1)
-        bad_keys = []
-        self.idxs = None
-
-        with open(data_path, 'rb') as file:
-            data = pickle.load(file)
-
-        # Remove cross-sections not specified
-        for key in data.keys():
-            if key not in sigmas:
-                bad_keys.append(key)
-
-        for bad_key in bad_keys:
-            del data[bad_key]
-
-        data = np.concatenate(list(data.values()))
-
-        self.ids = data[:, 0].astype(int)
-        self.labels = torch.from_numpy(data[:, 1:2]).float()
-        self.latent = torch.from_numpy(data[:, -7:]).float()
-        self.idxs = np.append(
-            np.argwhere(self.labels.flatten() != torch.unique(self.labels)[2]).flatten(),
-            np.argwhere(self.labels.flatten() == torch.unique(self.labels)[2]).flatten(),
-        )
-
-    def __len__(self) -> int:
-        return len(self.ids)
-
-    def __getitem__(self, idx: int) -> tuple[ndarray, Tensor, Tensor]:
-        """
-        Gets the training data for the given index
-
-        Parameters
-        ----------
-        idx : integer
-            Index of the target cluster
-
-        Returns
-        -------
-        tuple[ndarray, Tensor, Tensor]
-            Cluster ID, cluster label, cluster latent space
-        """
-        return self.ids[idx], self.labels[idx], self.latent[idx]
 
 
 class GaussianDataset(Dataset):
@@ -280,7 +231,7 @@ class GaussianDataset(Dataset):
 
     Attributes
     ----------
-    unknown : integer
+    unknown : int
         Number of unknown classes
     ids : ndarray
         IDs for each Gaussian image in the dataset
@@ -291,24 +242,33 @@ class GaussianDataset(Dataset):
     idxs : ndarray, default = None
         Data indices for random training & validation datasets
     """
-    def __init__(self, data_path: str, known: list[float], unknown: list[float]):
+    def __init__(
+            self,
+            data_path: str,
+            known: list[float],
+            unknown: list[float],
+            names: list[str] | None = None):
         """
         Parameters
         ----------
-        data_path : string
+        data_path : str
             Path to the Gaussian dataset
         known : list[float]
             Known classes and labels
         unknown : list[float]
             Known classes with unknown labels
+        names : list[str] | None, default = None
+            Names for the simulations in order of known sims first, then unknown sims
         """
-        self.unknown: list[float] = unknown
+        self._unknown_factor: float = 1e-3
+        self.unknown: list[float] = np.array(unknown)[~np.in1d(unknown, known)].tolist()
         self.ids: ndarray
+        self.names: ndarray
         self.idxs: ndarray | None = None
         self.labels: ndarray | Tensor
         self.images: ndarray | Tensor
-        i: int
         class_: float
+        name: str
         bad_idxs: ndarray
         labels: ndarray
         images: ndarray
@@ -323,11 +283,22 @@ class GaussianDataset(Dataset):
         self.labels = np.delete(self.labels, bad_idxs, axis=0)
         self.images = np.delete(self.images, bad_idxs, axis=0)
 
-        for i, class_ in enumerate(self.unknown):
-            self.labels[np.in1d(self.labels, class_)] = 10 ** -(i + 3)
+        for class_ in self.unknown:
+            self.labels[np.in1d(self.labels, class_)] *= self._unknown_factor
 
         self.ids = np.arange(len(self.labels))
+        self.names = self.labels.copy() if names is None else np.array(
+            [''] * len(self.labels),
+            dtype=np.array(names, dtype=str).dtype,
+        )
         self.labels = self.labels[:, np.newaxis]
+
+        if names is not None:
+            for name, class_ in zip(names, np.array(known + self.unknown)[np.sort(np.unique(
+                    known + self.unknown,
+                    return_index=True,
+                )[1])]):
+                self.names[np.in1d(self.labels, [class_, class_ * self._unknown_factor])] = name
 
     def __len__(self) -> int:
         return len(self.ids)
@@ -337,7 +308,7 @@ class GaussianDataset(Dataset):
         Gets the training data for the given index
         Parameters
         ----------
-        idx : integer
+        idx : int
             Index of the target Gaussian image
 
         Returns
@@ -346,6 +317,24 @@ class GaussianDataset(Dataset):
             Image ID, label, image
         """
         return self.ids[idx], self.labels[idx], self.images[idx]
+
+    def correct_unknowns(self, labels: ndarray) -> ndarray:
+        """
+        Rescales the unknown labels to their correct values
+
+        Parameters
+        ----------
+        labels : (N) ndarray
+            N labels with unknown values to be corrected
+
+        Returns
+        -------
+        (N) ndarray
+            Corrected labels
+        """
+        for label in np.unique(labels)[:len(self.unknown)]:
+            labels[labels == label] /= self._unknown_factor
+        return labels
 
 
 def loader_init(
@@ -360,7 +349,7 @@ def loader_init(
     ----------
     dataset : DarkDataset
         Dataset to generate data loaders for
-    batch_size : integer, default = 1024
+    batch_size : int, default = 1024
         Number of data inputs per weight update,
         smaller values update the network faster and requires less memory, but is more unstable
     val_frac : float, default = 0.1

@@ -19,20 +19,20 @@ def main(majors: np.ndarray = None):
     num = int(3e3)
     min_counts = 200
     count_density = int(5e3)
-    std = 0.2
+    std = 1
     mu_std = 5e-1
     data = []
     ranges = []
     image_shape = [1, 100, 100]
 
     if majors is None:
-        # radii = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1])
-        majors = 0.5 + np.concatenate(([0.049, 0.051, 0.05], np.linspace(0.1, 1, 10), [1.05]))
+        majors = 0.5 + np.concatenate(([0.05], np.linspace(0.1, 1, 10), [1.05]))
+        # majors = 0.5 + np.concatenate(([0.049, 0.051, 0.05], np.linspace(0.1, 1, 10), [1.05]))
 
     # Initialise date
     minors = majors.copy()
-    minors[0] -= 0.2
-    minors[1] += 0.2
+    # minors[0] -= 0.2
+    # minors[1] += 0.2
     centers = np.random.normal(0, mu_std, size=[len(majors), num, 1, 2])
 
     # Generate Gaussian distributions for each radius
@@ -70,11 +70,16 @@ def main(majors: np.ndarray = None):
     # Generate labels and normalise images
     labels = majors.repeat(images.shape[1])
     images = images.reshape(-1, *images.shape[2:])
+    # images = np.repeat(images, 2, axis=1)
     images /= np.max(images, axis=(-2, -1))[..., np.newaxis, np.newaxis]
+
+    # Change second channel
+    # images[np.unique(labels)[0] == labels, 1] *= 0.7
+    # images[np.unique(labels)[2] == labels, 1] *= 1.3
 
     # Save data
     print('Saving...')
-    with open('../data/elliptical_data.pkl', 'wb') as file:
+    with open('../data/gaussian_data_coloured_1.pkl', 'wb') as file:
         pickle.dump((labels, images), file)
 
 

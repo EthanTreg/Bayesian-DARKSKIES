@@ -149,8 +149,8 @@ def main(config_path: str = '../config.yaml') -> None:
         ['bahamas_cdm_low', 'bahamas_cdm_hi'],
         ['flamingo'],
         ['flamingo_low', 'flamingo_hi'],
-        # ['darkskies_0.01', 'darkskies_0.05', 'darkskies_0.1', 'darkskies_0.2'],
         # ['tng'],
+        # ['darkskies_0.01', 'darkskies_0.05', 'darkskies_0.1', 'darkskies_0.2'],
     ]
     losses: tuple[float, float]
     loaders: tuple[DataLoader, DataLoader]

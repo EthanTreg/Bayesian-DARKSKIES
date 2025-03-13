@@ -63,6 +63,8 @@ def open_config(
         args = parser.parse_args()
         config_path = args.config_path
 
+    config_path += '' if '.yaml' in config_path else '.yaml'
+
     with open(config_path, 'rb') as file:
         config = yaml.safe_load(file)[key]
 

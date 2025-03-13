@@ -9,6 +9,8 @@ __pycache__/
 #!/model_states/*_1.pth
 model_states/*[Tt][Ee][Ss][Tt]*
 model_states/*[Tt][Ee][Mm][Pp]*
+network_configs/optuna_config.json
 !/src/gaussian_tests.py
+!/batch_train_configs/*
 /*.egg-info/
 /build/

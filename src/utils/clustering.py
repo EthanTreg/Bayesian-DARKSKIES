@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from netloader.networks import BaseNetwork
 from netloader.utils.utils import label_change
 from netloader.transforms import BaseTransform
-from netloader.layers.utils import BaseLayer
+from netloader.layers.base import BaseLayer
 from netloader.network import Network
 from netloader import layers
 
@@ -37,12 +37,10 @@ class CosineSimilarity(BaseNetwork):
         Description of the network
     losses : tuple[list[float], list[float]], default = ([], [])
         Network training and validation losses
-    header : dict[str, BaseTransform | None], default = {...: None, ...}
+    transforms : dict[str, BaseTransform | None], default = {...: None, ...}
         Keys for the output data from predict and corresponding transforms
     idxs: (N) ndarray, default = None
         Data indices for random training & validation datasets
-    in_transform : BaseTransform, default = None
-        Transformation for the input data
     """
     def __init__(
             self,
@@ -54,7 +52,7 @@ class CosineSimilarity(BaseNetwork):
             description: str = '',
             verbose: str = 'full',
             transform: BaseTransform | None = None,
-            in_transform: BaseTransform | None = None):
+            in_transform: BaseTransform | None = None) -> None:
         super().__init__(
             save_num,
             states_dir,
@@ -67,7 +65,7 @@ class CosineSimilarity(BaseNetwork):
             in_transform=in_transform,
         )
         self.margin: float = 0
-        self.header['preds'] = None
+        self.transforms['preds'] = None
 
     def __getstate__(self) -> dict[str, Any]:
         return super().__getstate__() | {'margin': self.margin}
@@ -143,17 +141,17 @@ class ClusterEncoder(BaseNetwork):
         Description of the network training
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current network training and validation losses
-    header : dict[str, BaseTransform | None], default = {...: None, ...}
+    transforms : dict[str, BaseTransform | None], default = {...: None, ...}
         Keys for the output data from predict and corresponding transforms
     idxs: (N) ndarray, default = None
         Data indices for random training & validation datasets
-    in_transform : BaseTransform, default = None
-        Transformation for the input data
 
     Methods
     -------
     batch_predict(data) -> tuple[Tensor, Tensor, Tensor]
         Generates predictions and latent space for the given data batch
+    extra_repr() -> str
+        Displays layer parameters when printing the architecture
     """
     def __init__(
             self,
@@ -168,7 +166,7 @@ class ClusterEncoder(BaseNetwork):
             method: str = 'mean',
             verbose: str = 'full',
             transform: BaseTransform | None = None,
-            in_transform: BaseTransform | None = None):
+            in_transform: BaseTransform | None = None) -> None:
         """
         Parameters
         ----------
@@ -198,7 +196,6 @@ class ClusterEncoder(BaseNetwork):
         in_transform : BaseTransform, default = None
             Transformation for the input data
         """
-        net.scale = nn.Parameter(torch.tensor((1.,), requires_grad=True))
         super().__init__(
             save_num,
             states_dir,
@@ -213,14 +210,30 @@ class ClusterEncoder(BaseNetwork):
         self._unknown: int = unknown
         self._method: str = method
         self._cluster_centers: Tensor | None = None
-        self.sim_loss: float = 0.7
-        self.class_loss: float = 0.2
-        self.compact_loss: float = 0.5
-        self.distance_loss: float = 3
+        self.sim_loss: float = 1
+        self.class_loss: float = 1
+        self.compact_loss: float = 1
+        self.distance_loss: float = 1
         self.classes: Tensor = classes
         self.center_step: Tensor = torch.ones(len(self.classes), device=self._device)
 
-        self.header |= {'probs': None, 'latent': None}
+        self.transforms |= {'probs': None, 'latent': None}
+
+    def extra_repr(self) -> str:
+        """
+        Displays architecture parameters when printing the network
+
+        Returns
+        -------
+        str
+            Architecture parameters
+        """
+        return (f'method: {self._method}, '
+                f'center_step: {self.center_step.cpu().numpy().tolist()}, '
+                f'similarity_weight: {self.sim_loss}, '
+                f'class_weight: {self.class_loss}, '
+                f'compact_weight: {self.compact_loss}, '
+                f'distance_weight: {self.distance_loss}')
 
     def __getstate__(self) -> dict[str, Any]:
         return super().__getstate__() | {
@@ -332,12 +345,10 @@ class ClusterEncoder(BaseNetwork):
         Tensor
             Loss for the difference in distance for each class
         """
-        centers: Tensor
         known_classes: Tensor = self.classes[self._unknown:]
 
         if len(known_classes) > 1:
-            centers = self.net.scale * self._cluster_centers[self._unknown:, 0]
-            return nn.MSELoss()(centers, known_classes)
+            return nn.MSELoss()(self._cluster_centers[self._unknown:, 0], known_classes)
 
         return torch.tensor(0., device=self._device)
 
@@ -490,12 +501,17 @@ class CompactClusterEncoder(ClusterEncoder):
         Description of the network training
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current encoder training and validation losses
-    header : dict[str, BaseTransform | None], default = {...: None, ...}
+    transforms : dict[str, BaseTransform | None], default = {...: None, ...}
         Keys for the output data from predict and corresponding transforms
     idxs: (N) ndarray, default = None
         Data indices for random training & validation datasets
-    in_transform : BaseTransform, default = None
-        Transformation for the input data
+
+    Methods
+    -------
+    saliency(loader, batch=True) -> dict[str, ndarray]
+        Calculates the saliency for each dimension in the latent space by zeroing out the gradients
+    extra_repr() -> str
+        Displays layer parameters when printing the architecture
     """
     def __init__(
             self,
@@ -511,7 +527,7 @@ class CompactClusterEncoder(ClusterEncoder):
             description: str = '',
             verbose: str = 'full',
             transform: BaseTransform | None = None,
-            in_transform: BaseTransform | None = None):
+            in_transform: BaseTransform | None = None) -> None:
         """
         Parameters
         ----------
@@ -663,7 +679,7 @@ class CompactClusterEncoder(ClusterEncoder):
         known_classes: Tensor = self.classes[self._unknown:]
         batch_classes: Tensor = known_classes[torch.isin(known_classes, torch.unique(labels))]
 
-        if len(known_classes) == 0:
+        if len(batch_classes) == 0:
             return torch.tensor(0.).to(self._device)
 
         # Calculate cluster centers for each class in the batch
@@ -832,6 +848,9 @@ class CompactClusterEncoder(ClusterEncoder):
         torch.backends.cudnn.enabled = True
         return {key: np.concatenate(value) for key, value in data.items()}
 
+    def extra_repr(self) -> str:
+        return f'{super().extra_repr()}, steps: {self._steps}, cluster_weight: {self.cluster_loss}'
+
 
 class GradGate(BaseLayer):
     """
@@ -849,8 +868,7 @@ class GradGate(BaseLayer):
     hook(grad) -> Tensor
         Adds the gradient gate to the gradient in the backward pass
     """
-    # type: ignore[annotation-unchecked]
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(idx=0)
         self.idx: int = 0
 
