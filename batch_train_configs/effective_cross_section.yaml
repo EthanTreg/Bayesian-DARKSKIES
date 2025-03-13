@@ -10,11 +10,11 @@ training:
   # Number of repeats per test
   repeats: 10
   # File number to save the network progres, should be a multiple of 100
-  batch-save: 2
+  batch-save: 1
   # File number to load the network state, should be a multiple of 100
-  batch-load: 2
+  batch-load: 1
   # Learning rate for training the network
-  learning-rate: 1.0e-4
+  learning-rate: 5.0e-4
   # File name for the network model to load
   network-name: 'network_v10'
   # Network description to append on description

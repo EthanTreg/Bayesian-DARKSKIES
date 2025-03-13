@@ -95,7 +95,7 @@ class DarkDataset(Dataset):
 
             # Remove stellar maps & create labels
             images_.append(images[:, :3])
-            norms_.append(labels['norms'])
+            norms_.append(labels['norms'][:, :3])
             label = labels['label'][0]
 
             # Ensure there are no zero labels
