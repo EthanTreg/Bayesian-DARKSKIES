@@ -31,6 +31,7 @@ training:
     - 'FLAMINGO, DMO & Noise unknown'
     - 'FLAMINGO, DMO unknown'
     - 'BAHAMAS, FLAMINGO Low Test unknown'
+    - 'BAHAMAS, FLAMINGO Low Test unknown, Maximum'
 #      - 'FLAMINGO High, FLAMINGO Low Test unknown'
   # Known simulations for each test
   known-simulations:
@@ -99,6 +100,16 @@ training:
       - 'bahamas_0.1'
       - 'bahamas_0.3'
       - 'bahamas_1'
+    -
+      - 'flamingo'
+      - 'flamingo_low'
+      - 'flamingo_hi'
+      - 'bahamas_cdm'
+      - 'bahamas_cdm_low'
+      - 'bahamas_cdm_hi'
+      - 'bahamas_0.1'
+      - 'bahamas_0.3'
+      - 'bahamas_1'
 #      -
 #        - 'flamingo'
 #        - 'flamingo_hi'
@@ -134,6 +145,8 @@ training:
       - 'bahamas_dmo_cdm'
       - 'bahamas_dmo_0.1'
       - 'bahamas_dmo_1'
+      - 'flamingo_low_test'
+    -
       - 'flamingo_low_test'
     -
       - 'flamingo_low_test'

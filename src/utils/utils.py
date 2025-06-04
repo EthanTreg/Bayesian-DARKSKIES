@@ -6,6 +6,8 @@ from typing import Any
 from argparse import ArgumentParser
 
 import yaml
+import numpy as np
+from scipy.stats import gaussian_kde
 
 
 def _interactive_check() -> bool:
@@ -69,3 +71,31 @@ def open_config(
         config = yaml.safe_load(file)[key]
 
     return config_path, config
+
+
+def overlap(data_1: np.ndarray, data_2: np.ndarray, bins: int = 100) -> float:
+    """
+    Calculates the overlap between two datasets by using a Gaussian kernel to approximate the
+    distribution, then integrates the overlap using the trapezoidal rule
+
+    Parameters
+    ----------
+    data_1 : ndarray
+        First dataset of shape (N), where N are the number of points
+    data_2 : ndarray
+        Second dataset of shape (M), where M are the number of points
+    bins : int, default = 100
+        Number of bins to sample from the Gaussian distribution approximation
+
+    Returns
+    -------
+    float
+        Overlap fraction
+    """
+    grid = np.linspace(min(data_1.min(), data_2.min()), max(data_1.max(), data_2.max()), bins)
+    kde_1 = gaussian_kde(data_1)
+    kde_2 = gaussian_kde(data_2)
+
+    pdf_1 = kde_1(grid)
+    pdf_2 = kde_2(grid)
+    return np.trapezoid(np.minimum(pdf_1, pdf_2), grid)

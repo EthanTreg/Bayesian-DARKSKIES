@@ -3,6 +3,7 @@ Package setup
 """
 from setuptools import setup
 
+# pylint: disable=unused-import
 import src
 
 setup(

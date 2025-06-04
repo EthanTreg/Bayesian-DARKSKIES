@@ -57,9 +57,10 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
         transform = net.transforms['inputs']
         param_transform = net.transforms['targets']
     else:
+        unknown = len(np.unique(dataset.labels[np.isin(dataset.sims, dataset.unknown)]))
         transform = transforms.MultiTransform(
             transforms.NumpyTensor(),
-            transforms.Index(0, dataset.images.shape[1:], slice(3)),
+            transforms.Index(0, dataset.images.shape[1:], slice(1)),
         )
         param_transform = transforms.MultiTransform(
             transforms.NumpyTensor(),
@@ -67,28 +68,47 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
         )
         param_transform.append(transforms.Normalise(data=param_transform(dataset.labels[np.isin(
             dataset.labels,
-            np.unique(dataset.labels)[len(dataset.unknown):],
+            np.unique(dataset.labels)[unknown:],
         )]), mean=False))
         net = Network(
             name,
             networks_dir,
-            list(dataset[0][2].shape),
+            list(transform(dataset[0][2][None])[0].shape),
             [len(np.unique(dataset.labels))],
+            # [len(np.unique(dataset.labels)) - unknown],  # Unknown no label
+            # [1],  # Encoder
         )
+        # net = nets.Encoder(
+        #     save_num,
+        #     states_dir,
+        #     net,
+        #     learning_rate=learning_rate,
+        #     description=description,
+        #     verbose='progress',
+        #     transform=param_transform,
+        #     in_transform=transform,
+        # )
         net = CompactClusterEncoder(
             save_num,
             states_dir,
             torch.unique(param_transform(dataset.labels)),
+            # torch.unique(param_transform(dataset.labels))[unknown:],  # Unknown no label
             net,
-            unknown=len(dataset.unknown),
+            unknown=unknown,
             learning_rate=learning_rate,
+            method='median',
             description=description,
             verbose='progress',
             transform=param_transform,
             in_transform=transform,
         )
 
+    # For transfer learning
+    # net.optimiser = net.set_optimiser(net.net.parameters(), lr=1e-5)
+    # net.scheduler = net.set_scheduler(net.optimiser, factor=0.5, min_lr=1e-7)
+
     # Initialise datasets
+    transform[1]._shape = dataset.images.shape[1:]
     dataset.images = transform(dataset.images)
     dataset.labels = param_transform(dataset.labels)
     return net.to(device)
@@ -132,6 +152,7 @@ def init(
 
     # Fetch dataset & network
     dataset = DarkDataset(data_dir, known, unknown)
+    dataset.labels = dataset.unique_labels(dataset.labels, dataset.sims)
     net = net_init(dataset, config)
 
     # Initialise data loaders
@@ -152,6 +173,8 @@ def main(config_path: str = '../config.yaml'):
     _, config = open_config('main', config_path)
 
     net_epochs = config['training']['epochs']
+    known = config['training']['known']
+    unknown = config['training']['unknown']
     states_dir = config['output']['network-states-directory']
     plots_dir = config['output']['plots-directory']
     bahamas_colours = ['#0049E0', '#0090E0', '#00D7E0', '#2CDEE6', '#00E09E', '#00E051'][:-2]
@@ -159,7 +182,7 @@ def main(config_path: str = '../config.yaml'):
     bahamas_dmo = ['#00FA8F', '#01FB3D', '#89FA00']
     flamingo_colours = ['#FABD00', '#FA2100', '#FA7700']
     flamingo_test = ['#FA07A0']
-    colours = ['k'] + flamingo_test + bahamas_dmo + flamingo_colours[1:2] + bahamas_colours
+    colours = ['k'] + bahamas_dmo[:2] + flamingo_colours + bahamas_agn_colours + bahamas_colours
     param_names = [
         r'$\sigma_{\rm DM}$',
         '$M$',
@@ -167,24 +190,6 @@ def main(config_path: str = '../config.yaml'):
         r'$\Delta T$',
         r'$m_{\rm DM}$',
         '$m_b$',
-    ]
-    known = [
-        'flamingo',
-        # 'flamingo_low',
-        # 'flamingo_hi',
-        'bahamas_cdm',
-        # 'bahamas_cdm_low',
-        # 'bahamas_cdm_hi',
-        'bahamas_0.1',
-        'bahamas_0.3',
-        'bahamas_1',
-    ]
-    unknown = [
-        'noise',
-        'flamingo_low_test',
-        'bahamas_dmo_cdm',
-        'bahamas_dmo_0.1',
-        'bahamas_dmo_1',
     ]
 
     # Create plots directory
@@ -204,12 +209,12 @@ def main(config_path: str = '../config.yaml'):
 
     # Generate predictions
     data = net.predict(loaders[1])
-    data['targets'] = dataset.correct_unknowns(data['targets'].squeeze())
+    data['targets'] = dataset.unique_labels(data['targets'], dataset.sims[data['ids'].astype(int)])
     data['targets'] = data['targets'].squeeze()
     labels = dataset.names[data['ids'][np.unique(
         data['targets'],
         return_index=True,
-    )[1]].astype(int)]
+    )[1]].astype(int)].tolist()
 
     # Plot performance
     plots.PlotPerformance(
@@ -319,10 +324,11 @@ def main(config_path: str = '../config.yaml'):
 
     # Plot predictions
     data['latent'][:, 0] *= 1e6
-    pca = PCA(n_components=4).fit(data['latent'][np.isin(
-        data['targets'],
-        np.unique(data['targets'])[net._unknown:],
-    )])
+    # pca = PCA(n_components=4).fit(data['latent'][np.isin(
+    #     data['targets'],
+    #     np.unique(data['targets'])[net._unknown:],
+    # )])
+    pca = PCA(n_components=4).fit(data['latent'])
     pca_transform = pca.transform(data['latent'])
     pca_transform[:, 0] /= 1e6
     data['latent'][:, 0] /= 1e6
@@ -331,7 +337,7 @@ def main(config_path: str = '../config.yaml'):
         data['targets'],
         density=True,
         labels=labels,
-        alpha=0.1,
+        alpha_marker=0.1,
         alpha_2d=0.2,
         colours=colours,
         rows=len(labels),
@@ -341,7 +347,7 @@ def main(config_path: str = '../config.yaml'):
         data['latent'],
         data['targets'],
         density=True,
-        alpha=0.1,
+        alpha_marker=0.1,
         alpha_2d=0.2,
         labels=labels,
         colours=colours,

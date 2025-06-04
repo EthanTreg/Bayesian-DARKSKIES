@@ -93,21 +93,21 @@ class DarkDataset(Dataset):
             with open(f"{data_dir}{sim.lower().replace('+', '_')}.pkl", 'rb') as file:
                 labels, images = pickle.load(file)
 
+            if 'flamingo' in sim.lower():
+                images = np.delete(images, 1, axis=1)
+                labels['norms'] = np.delete(labels['norms'], 1, axis=1)
+
             # Remove stellar maps & create labels
             images_.append(images[:, :3])
             norms_.append(labels['norms'][:, :3])
             label = labels['label'][0]
 
+            if 'flamingo' in sim.lower() or 'cdm' in sim.lower():
+                label = 1e-2
+
             # Ensure there are no zero labels
             if label == 0:
                 label = log_0
-
-            # Prevent duplicate labels
-            while np.isin(
-                    [label, label * self._unknown_factor],
-                    np.unique(self.labels),
-            ).any() and label != 0:
-                label *= 0.999
 
             # Ensure unknown labels are the smallest
             if sim in self.unknown:
@@ -145,7 +145,6 @@ class DarkDataset(Dataset):
             else:
                 self.stellar_frac = np.concatenate((self.stellar_frac, np.zeros(len(images))))
 
-
         self.norms = np.concatenate(norms_)
         self.images = np.concatenate(images_)
         self.labels = self.labels[:, np.newaxis]
@@ -174,7 +173,7 @@ class DarkDataset(Dataset):
         tuple[ndarray, Tensor, Tensor, ndarray]
             Cluster ID, cluster label, and augmented image map
         """
-        return self.ids[idx], self.labels[idx], self.aug(self.images[idx, :2])
+        return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
 
     def _generate_noise(self, images: list[ndarray], norms: list[ndarray]) -> None:
         """
@@ -206,6 +205,43 @@ class DarkDataset(Dataset):
             np.arange(len(images[0])) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
         ))
 
+    def unique_labels(self, labels: ndarray, classes: ndarray, factor: float = 0.999) -> ndarray:
+        """
+        Ensures that all simulations have a unique label
+
+        Parameters
+        ----------
+        labels : ndarray
+            Labels, of shape (N), to make unique depending on classes
+        classes : ndarray
+            Classes, of shape (N), that each label belongs to
+        factor : float, default = 0.999
+            Factor to scale the label by until it is unique
+
+        Returns
+        -------
+        ndarray
+            Labels, of shape (N), with unique labels depending on their class
+        """
+        idx : int
+        class_: int | float | str
+        label: float
+        idxs: ndarray
+        new_labels: ndarray = np.zeros_like(labels)
+
+        for class_, idx in zip(*np.unique(classes, return_index=True)):
+            idxs = classes == class_
+            label = labels[idx]
+
+            while np.isin(
+                    [label, label * self._unknown_factor],
+                    new_labels,
+            ).any() and label != 0:
+                label *= factor
+
+            new_labels[idxs] = label
+        return new_labels
+
     def correct_unknowns(self, labels: ndarray) -> ndarray:
         """
         Rescales the unknown labels to their correct values
@@ -220,6 +256,8 @@ class DarkDataset(Dataset):
         (N) ndarray
             Corrected labels
         """
+        label: float
+
         for label in np.unique(labels)[:len(self.unknown)]:
             labels[labels == label] /= self._unknown_factor
         return labels

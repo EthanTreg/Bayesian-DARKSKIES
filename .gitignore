@@ -10,7 +10,11 @@ __pycache__/
 model_states/*[Tt][Ee][Ss][Tt]*
 model_states/*[Tt][Ee][Mm][Pp]*
 network_configs/optuna_config.json
+*.log
+*.out
+*.zip
 !/src/gaussian_tests.py
 !/batch_train_configs/*
 /*.egg-info/
 /build/
+/jupyter_notebooks/.ipynb_checkpoints/

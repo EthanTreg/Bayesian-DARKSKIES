@@ -14,6 +14,7 @@ from netloader.transforms import BaseTransform
 from netloader.layers.base import BaseLayer
 from netloader.network import Network
 from netloader import layers
+from torchkde import KernelDensity
 
 
 class CosineSimilarity(BaseNetwork):
@@ -369,10 +370,13 @@ class ClusterEncoder(BaseNetwork):
         class_idx: Tensor = self.classes == batch_class
         label_idxs: Tensor = labels == batch_class
 
-        if self._method == 'mean':
-            batch_center = torch.mean(latent[label_idxs], dim=0)
-        else:
-            batch_center = torch.median(latent[label_idxs], dim=0)[0]
+        match self._method:
+            case 'mean':
+                batch_center = torch.mean(latent[label_idxs], dim=0)
+            case 'median':
+                batch_center = torch.median(latent[label_idxs], dim=0)[0]
+            case _:
+                raise ValueError(f'Unknown clustering method ({self._method})')
 
         self._cluster_centers[class_idx] += (
                 (batch_center - self._cluster_centers[class_idx]) *
@@ -488,6 +492,8 @@ class CompactClusterEncoder(ClusterEncoder):
         Optimiser scheduler, uses reduce learning rate on plateau
     net : Module | Network
         Encoder network
+    epsilon : float, default = 1e-2
+        If method is relative, minimum denominator value to prevent divide by zero
     cluster_loss : float, default = 1
         Weighting of the cluster loss
     distance_loss : float, default = 1
@@ -576,17 +582,23 @@ class CompactClusterEncoder(ClusterEncoder):
         self._steps: int = steps
         self.sim_loss: float = 0  # Unused
         self.compact_loss: float = 0  # Unused
-        self.class_loss: float = 0.2
+        self.epsilon: float = 1e-2
+        self.class_loss: float = 1
         self.cluster_loss: float = 2.2
         self.distance_loss: float = 1
 
     def __getstate__(self) -> dict[str, Any]:
-        return super().__getstate__() | {'steps': self._steps, 'cluster_loss': self.cluster_loss}
+        return super().__getstate__() | {
+            'steps': self._steps,
+            'epsilon': self.epsilon,
+            'cluster_loss': self.cluster_loss,
+        }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         super().__setstate__(state)
         self._steps = state['steps']
         self.cluster_loss = state['cluster_loss']
+        self.epsilon = state['epsilon'] if 'epsilon' in state else 1e-2
 
     def _label_propagation_cluster_loss(self, latent: Tensor, one_hot: Tensor) -> Tensor:
         """
@@ -674,23 +686,58 @@ class CompactClusterEncoder(ClusterEncoder):
             Loss for cluster centers in the batch
         """
         batch_centers: list[Tensor] = []
-        label_idxs: Tensor
+        idxs: Tensor
         batch_class: Tensor
         known_classes: Tensor = self.classes[self._unknown:]
         batch_classes: Tensor = known_classes[torch.isin(known_classes, torch.unique(labels))]
+
+        if self._method == 'singular':
+            return torch.nn.MSELoss()(latent[:, 0], labels)
 
         if len(batch_classes) == 0:
             return torch.tensor(0.).to(self._device)
 
         # Calculate cluster centers for each class in the batch
         for batch_class in batch_classes:
-            label_idxs = labels == batch_class
+            idxs = labels == batch_class
 
-            if self._method == 'mean':
-                batch_centers.append(torch.mean(latent[label_idxs, 0]))
-            else:
-                batch_centers.append(torch.median(latent[label_idxs, 0]))
+            match self._method:
+                case 'mean' | 'relative_mean':
+                    batch_centers.append(torch.mean(latent[idxs, 0]))
+                case 'median' | 'relative_median':
+                    batch_centers.append(torch.median(latent[idxs, 0]))
+                case 'max' if torch.count_nonzero(latent[idxs]) > 1:
+                    bin_width = 2 * (
+                            torch.quantile(latent[idxs, 0], 0.75) -
+                            torch.quantile(latent[idxs, 0], 0.25)
+                    ) / torch.count_nonzero(idxs) ** (1 / 3)
+                    num = int(torch.round(
+                        (torch.max(latent[idxs, 0]) - torch.min(latent[idxs, 0])) / bin_width,
+                    ).item())
+                    probs = torch.histc(latent[idxs, 0], bins=num)
+                    probs /= torch.sum(probs)
+                    bins = (torch.max(latent[idxs, 0] - torch.min(latent[idxs, 0])) *
+                            (torch.arange(0, num) + 0.5).to(latent.device) / num +
+                            torch.min(latent[idxs, 0]))
+                    batch_centers.append(torch.mean(
+                        (latent[idxs, 0] - batch_class) ** 2 *
+                        probs[torch.bucketize(latent[idxs, 0], bins) - 1],
+                    ))
+                case 'max':
+                    batch_centers.append(latent[idxs, 0].flatten())
+                case 'max_density':
+                    kde = KernelDensity()
+                    kde.fit(latent[None, idxs, 0])
+                    batch_centers.append(-kde.score(batch_class[None]))
+                case _:
+                    raise ValueError(f'Unknown clustering method ({self._method})')
 
+        if 'max' in self._method:
+            return torch.mean(torch.stack(batch_centers))
+        if 'relative' in self._method:
+            return torch.mean(
+                (torch.stack(batch_centers) - batch_classes) ** 2 / (batch_classes + self.epsilon),
+            )
         return nn.MSELoss()(torch.stack(batch_centers), batch_classes)
 
     def _loss(self, in_data: Tensor, target: Tensor) -> float:
@@ -745,7 +792,7 @@ class CompactClusterEncoder(ClusterEncoder):
 
         # Find size of the bottleneck
         bottleneck = torch.argwhere(
-            torch.count_nonzero(latent == 0, dim=0) == latent.size(0),
+            torch.count_nonzero(latent == 0, dim=0) == len(latent),
         ).flatten()
 
         # Remove part of latent space zeroed out due to information-ordered bottleneck layer
@@ -755,11 +802,11 @@ class CompactClusterEncoder(ClusterEncoder):
         one_hot = label_change(target[l_idxs], self.classes, one_hot=True).float()
 
         # Classification loss
-        if self.class_loss:
+        if self.class_loss and l_idxs.any():
             loss += self.class_loss * nn.CrossEntropyLoss()(output[l_idxs], one_hot)
 
         # Cluster loss
-        if self.cluster_loss:
+        if self.cluster_loss and l_idxs.any():
             loss += self.cluster_loss * self._label_propagation_cluster_loss(
                 torch.cat((latent[l_idxs], latent[~l_idxs])),
                 one_hot,
