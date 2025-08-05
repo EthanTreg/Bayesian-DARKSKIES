@@ -10,6 +10,9 @@ import numpy as np
 from scipy.stats import gaussian_kde
 
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 def _interactive_check() -> bool:
     """
     Checks if the launch environment is interactive or not
@@ -67,7 +70,7 @@ def open_config(
 
     config_path += '' if '.yaml' in config_path else '.yaml'
 
-    with open(config_path, 'rb') as file:
+    with open(os.path.join(ROOT, config_path), 'rb') as file:
         config = yaml.safe_load(file)[key]
 
     return config_path, config

@@ -14,10 +14,10 @@ from netloader.utils.utils import save_name
 from src.utils import analysis
 from src.main import init, net_init
 from src.utils.data import DarkDataset
-from src.utils.utils import open_config
+from src.utils.utils import open_config, ROOT
 
 
-def _update_sims(new_sims: list[str], current_sims: ndarray) -> ndarray:
+def update_sims(new_sims: list[str], current_sims: ndarray) -> ndarray:
     """
     Updates the current array of simulations, makes the array unique, and removes any sims with an
     exclamation
@@ -102,7 +102,7 @@ def main(config_path: str = '../config.yaml'):
     names = config['training']['test-names']
     known = config['training']['known-simulations']
     unknown = config['training']['unknown-simulations']
-    states_dir = config['output']['network-states-directory']
+    states_dir = str(os.path.join(ROOT, config['output']['network-states-directory']))
 
     if len(unknown) == 1:
         unknown *= len(known)
@@ -116,12 +116,12 @@ def main(config_path: str = '../config.yaml'):
 
     for i, (sims, unknown_sims, name) in enumerate(zip(known, unknown, names)):
         if cumulative:
-            current_known = _update_sims(sims, current_known)
+            current_known = update_sims(sims, current_known)
         else:
             current_known = np.array(sims)
 
         if unknown_cumulative:
-            current_unknown = _update_sims(unknown_sims, current_unknown)
+            current_unknown = update_sims(unknown_sims, current_unknown)
         else:
             current_unknown = np.array(unknown_sims)
 
@@ -156,7 +156,6 @@ def main(config_path: str = '../config.yaml'):
             config,
             unknown=current_unknown.tolist(),
         )
-        # loaders, net, dataset = init(current_known + current_unknown, config) # For Encoders
 
         for j in range(repeats):
             config['training']['network-save'] = f'{save_num}.{i}.{j}'
@@ -178,9 +177,10 @@ def main(config_path: str = '../config.yaml'):
             )
 
             # Remove dataset transform & initialise network
-            dataset.images = net.transforms['inputs'](dataset.images, back=True)
-            dataset.labels = net.transforms['targets'](dataset.labels, back=True)
+            dataset.high_dim = net.transforms['inputs'](dataset.high_dim, back=True)
+            dataset.low_dim = net.transforms['targets'](dataset.low_dim, back=True)
             net = net_init(dataset, config=config)
+            net.idxs = dataset.extra['ids'].iloc[loaders[0].dataset.indices]
             net.description = config['training']['description']
             net.training(epochs, loaders)
             net.save()
@@ -188,7 +188,7 @@ def main(config_path: str = '../config.yaml'):
             data['targets'] = dataset.correct_unknowns(data['targets'].squeeze())
             data['targets'] = dataset.unique_labels(
                 data['targets'],
-                dataset.sims[data['ids'].astype(int)],
+                dataset.extra['sims'].iloc[data['ids'].astype(int)],
             )
             # data['latent'] = net.transforms['targets'](data['preds']).numpy() # For Encoders
             meds, means, stes = analysis.summary(data)[:3]
@@ -210,8 +210,9 @@ def main(config_path: str = '../config.yaml'):
             results[i][key] = np.stack(results[i][key])
 
     with open(os.path.join(
-            config['output']['batch-train-dir'],
-            f'batch_train_{save_num}.pkl',
+        ROOT,
+        config['output']['batch-train-dir'],
+        f'batch_train_{save_num}.pkl',
     ), 'wb') as file:
         pickle.dump(results, file)
 

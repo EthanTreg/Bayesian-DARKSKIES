@@ -10,6 +10,8 @@ __pycache__/
 model_states/*[Tt][Ee][Ss][Tt]*
 model_states/*[Tt][Ee][Mm][Pp]*
 network_configs/optuna_config.json
+!/src/tests
+!/src/tests/netloader_tests.py
 *.log
 *.out
 *.zip

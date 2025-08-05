@@ -1,49 +1,60 @@
 """
 Loads data and creates data loaders for network training
 """
+import os
 import pickle
-from typing import BinaryIO
+from typing import BinaryIO, Any
 
 import numpy as np
+import pandas as pd
 from torch import Tensor
-from torch.utils.data import Dataset, DataLoader, Subset
-from netloader.utils.utils import get_device
+from torch.utils.data import Dataset
 from torchvision.transforms import v2
+from netloader.data import BaseDataset, UNSET
+from pandas import DataFrame
 from numpy import ndarray
 
+from src.utils.utils import ROOT
 
-class DarkDataset(Dataset):
+
+class DarkDataset(BaseDataset):
     """
     A dataset object containing image maps and dark matter cross-sections for PyTorch training
 
     Attributes
     ----------
-    ids : (N) ndarray
-        IDs for N clusters in the dataset
-    sims : (N) ndarray
-        Simulation ID for N clusters in the dataset
-    mass : (N) ndarray
-        Mass for N clusters in the dataset
-    names : (N) ndarray
-        Names for N clusters in the dataset
-    stellar_frac : (N) ndarray
-        Stellar fractions for N clusters in the dataset
-    norms : (N,C) ndarray
-        Normalisations for C channels of the images for N clusters in the dataset
-    labels : (N,1) ndarray | (N,1) Tensor
-        Supervised labels for dark matter cross-section for N clusters
-    images : (N,C,H,W) ndarray | (N,C,H,W) Tensor
-        Lensing, X-ray and stellar maps of height H and width W for N clusters
+    unknown : list[str]
+        List of unknown simulations
+    idxs : ndarray
+        Index for each sample in the dataset with shape (N) and type int
+    low_dim : ndarray | Tensor | None, default = None
+        Supervised labels for the dark matter cross-section with shape (N) and type float, where N
+        is the number of samples
+    high_dim : ndarray | Tensor | object
+        Total mass, X-ray, and stellar mass maps with shape (N,C,H,W) and type float, with number of
+        channels C, height H, and width W
+    extra : DataFrame
+        Additional data for each sample in the dataset of length N with shape (N,...) and type Any,
+        contains the sample ids (ids), simulations (sims), simulation name (names), and image
+        normalisations (norms)
     aug : Compose
         Image augmentation transform
-    idxs : ndarray, default = None
-        Data indices for random training & validation datasets
+
+    Methods
+    -------
+    get_high_dim(idx) -> ndarray | Tensor
+        Gets a high dimensional sample of the given index
+    get_extra(idx) -> ndarray | Tensor
+        Gets extra data for the sample of the given index
+    unique_labels(labels, classes, factor=0.999) -> ndarray
+        Ensures that all simulations have a unique label
+    correct_unknowns(labels) -> ndarray:
+        Rescales the unknown labels to their correct values
     """
-    def __init__(
-            self,
-            data_dir: str,
-            sims: list[str],
-            unknown_sims: list[str]):
+    _unknown_factor: float = 1e-3
+    _keys: tuple[str, ...] = ('ids', 'sims', 'names', 'norms')
+
+    def __init__(self, data_dir: str, sims: list[str], unknown_sims: list[str]) -> None:
         """
         Parameters
         ----------
@@ -54,26 +65,17 @@ class DarkDataset(Dataset):
         unknown_sims : list[str]
             Which simulations to load that are unknown
         """
-        self._unknown_factor: float = 1e-3
-        self.unknown: list[str] = unknown_sims
-        self.ids: ndarray = np.array([])
-        self.sims: ndarray = np.array([])
-        self.mass: ndarray = np.array([])
-        self.names: ndarray = np.array([])
-        self.norms: ndarray = np.array([])
-        self.stellar_frac: ndarray = np.array([])
-        self.idxs: ndarray | None = None
-        self.images: ndarray | Tensor
-        self.labels: ndarray | Tensor = np.array([])
+        super().__init__()
         label: float
-        log_0: float = 4e-2
+        log_0: float = 1e-2
         sim: str
-        labels: dict[str, ndarray | list[float]]
-        norms_: list[ndarray] = []
-        images_: list[ndarray] = []
-        file: BinaryIO
+        labels: dict[str, ndarray]
         sims_: ndarray
         images: ndarray
+        extra: DataFrame
+        self.unknown: list[str] = unknown_sims
+        self.aug: v2.Transform
+        self.extra: DataFrame = DataFrame([])
 
         sims_ = np.array(sims + self.unknown)[np.sort(np.unique(
             sims + self.unknown,
@@ -84,23 +86,15 @@ class DarkDataset(Dataset):
             raise ValueError('Noise cannot be treated as a known simulation')
 
         for sim in sims_:
-            # Generate noise maps
-            if sim.lower() == 'noise':
-                self._generate_noise(images_, norms_)
-                continue
+            if sim.lower() == 'noise' and self.high_dim is not UNSET:
+                labels, images, extra = self._generate_noise([int(1e3), *self.high_dim.shape[1:]])
+            elif sim.lower() == 'noise':
+                raise ValueError('Cannot generate noise maps without existing data to base them '
+                                 'off')
+            else:
+                labels, images, extra = self._load_data(sim, data_dir)
 
-            # Load data from file
-            with open(f"{data_dir}{sim.lower().replace('+', '_')}.pkl", 'rb') as file:
-                labels, images = pickle.load(file)
-
-            if 'flamingo' in sim.lower():
-                images = np.delete(images, 1, axis=1)
-                labels['norms'] = np.delete(labels['norms'], 1, axis=1)
-
-            # Remove stellar maps & create labels
-            images_.append(images[:, :3])
-            norms_.append(labels['norms'][:, :3])
-            label = labels['label'][0]
+            label = float(labels['label'][0])
 
             if 'flamingo' in sim.lower() or 'cdm' in sim.lower():
                 label = 1e-2
@@ -113,41 +107,17 @@ class DarkDataset(Dataset):
             if sim in self.unknown:
                 label *= self._unknown_factor
 
-            self.labels = np.concatenate((self.labels, np.ones(len(images)) * label))
-            self.sims = np.concatenate((self.sims, [sim] * len(images)))
-            self.names = np.concatenate((self.names, [labels['name']] * len(images)))
-
-            # Create IDs
-            if 'ClusterID' in labels:
-                self.ids = np.concatenate((self.ids, labels['clusterID'].astype(int)))
+            if self.high_dim is UNSET:
+                self.high_dim = images[:, :3]
+                self.low_dim = np.ones(len(images)) * label
             else:
-                self.ids = np.concatenate((
-                    self.ids,
-                    np.arange(len(images)) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
-                ))
+                self.high_dim = np.concat((self.high_dim, images[:, :3]), axis=0)
+                self.low_dim = np.concat((self.low_dim, np.ones(len(images)) * label), axis=0)
 
-            # Calculate mass and stellar fraction within 100 kpc
-            mask = np.where(np.add(*[array ** 2 for array in np.meshgrid(
-                np.arange(images.shape[-2]) - images.shape[-2] // 2 + 0.5,
-                np.arange(images.shape[-1]) - images.shape[-1] // 2 + 0.5,
-            )]) < 25, 1, 0)
-            self.mass = np.concatenate((
-                self.mass,
-                np.sum(images[:, 0] * mask, axis=(-2, -1)) * labels['norms'][:, 0],
-            ))
+            self.extra = pd.concat([self.extra, extra], axis=0)
 
-            if images.shape[1] == 3:
-                self.stellar_frac = np.concatenate((
-                    self.stellar_frac,
-                    (np.sum(images[:, -1] * mask, axis=(-2, -1)) * labels['norms'][:, -1] /
-                     (np.sum(images[:, 0] * mask, axis=(-2, -1)) * labels['norms'][:, 0])),
-                ))
-            else:
-                self.stellar_frac = np.concatenate((self.stellar_frac, np.zeros(len(images))))
-
-        self.norms = np.concatenate(norms_)
-        self.images = np.concatenate(images_)
-        self.labels = self.labels[:, np.newaxis]
+        self.extra.columns = self._keys
+        self.low_dim = self.low_dim[:, np.newaxis]
 
         # Image augmentations
         self.aug = v2.Compose([
@@ -156,54 +126,76 @@ class DarkDataset(Dataset):
             v2.RandomRotation(degrees=(0, 180)),
         ])
 
-    def __len__(self) -> int:
-        return len(self.ids)
-
-    def __getitem__(self, idx: int) -> tuple[ndarray, ndarray | Tensor, ndarray | Tensor]:
+    @staticmethod
+    def _load_data(sim: str, data_dir: str) -> tuple[dict[str, ndarray], ndarray, DataFrame]:
         """
-        Gets the training data for the given index
+        Loads data from a file
 
         Parameters
         ----------
-        idx : int
-            Index of the target cluster
+        sim : str
+            Simulation name
+        data_dir : str
+            Path to the directory of simulation data
 
         Returns
         -------
-        tuple[ndarray, Tensor, Tensor, ndarray]
-            Cluster ID, cluster label, and augmented image map
+        tuple[dict[str, ndarray], ndarray, DataFrame]
+            Labels, images, extra data
         """
-        return self.ids[idx], self.labels[idx], self.aug(self.images[idx])
+        labels: dict[str, ndarray]
+        file: BinaryIO
+        images: ndarray
+        extra: DataFrame
 
-    def _generate_noise(self, images: list[ndarray], norms: list[ndarray]) -> None:
+        with open(os.path.join(
+            ROOT,
+            data_dir,
+            f"{sim.lower().replace('+', '_')}.pkl",
+        ), 'rb') as file:
+            labels, images = pickle.load(file)
+
+        if 'flamingo' in sim.lower():
+            images = np.delete(images, 1, axis=1)
+            labels['norms'] = np.delete(labels['norms'], 1, axis=1)
+
+        extra = DataFrame(np.array([
+            f'{sim}_' +  np.arange(len(images)).astype(str),
+            [sim] * len(images),
+            [labels['name']] * len(images),
+            labels['norms'].tolist(),
+        ], dtype=object).swapaxes(0, 1))
+        return labels, images, extra
+
+    def _generate_noise(self, shape: list[int]) -> tuple[dict[str, ndarray], ndarray, DataFrame]:
         """
         Generates random uniform noise images
 
         Parameters
         ----------
-        images : list[(N,...) ndarray]
-            List of dataset images with N images per simulation, requires at least 1 to base the
-             noise images shape off
-        norms : list[(N,...) ndarray]
-            List of normalisations with N normalisations per simulation, requires at least 1 to
-             base the noise norms shape off
-        """
-        if len(images) == 0:
-            raise ValueError('Cannot generate noise maps without existing data to base '
-                             'them off')
+        shape : list[int]
+            Shape of the noise images to generate
 
-        images.append(np.random.rand(*images[0].shape))
-        norms.append(np.ones_like(norms[0]))
-        self.labels = np.concatenate((
-            self.labels,
-            np.ones(len(images[0])) * self._unknown_factor ** 2,
-        ))
-        self.sims = np.concatenate((self.sims, ['noise'] * len(images[0])))
-        self.names = np.concatenate((self.names, ['Noise'] * len(images[0])))
-        self.ids = np.concatenate((
-            self.ids,
-            np.arange(len(images[0])) + (np.max(self.ids) + 1 if len(self.ids) > 0 else 0),
-        ))
+        Returns
+        -------
+        tuple[dict[str, ndarray], ndarray, DataFrame]
+            Labels, images, extra data
+        """
+        images: ndarray = np.random.rand(*shape)
+        labels: ndarray = np.ones(shape[0]) * self._unknown_factor
+        extra: DataFrame = DataFrame(np.array([
+            'noise_' + np.arange(shape[0]).astype(str),
+            ['noise'] * shape[0],
+            ['Noise'] * shape[0],
+            np.ones(shape[:2]).tolist(),
+        ], dtype=object).swapaxes(0, 1))
+        return {'label': labels}, images, extra
+
+    def get_high_dim(self, idx: int) -> ndarray | Tensor:
+        return self.aug(self.high_dim[idx])
+
+    def get_extra(self, idx: int) -> list[Any]:
+        return self.extra.iloc[idx].tolist()
 
     def unique_labels(self, labels: ndarray, classes: ndarray, factor: float = 0.999) -> ndarray:
         """
@@ -311,7 +303,7 @@ class GaussianDataset(Dataset):
         labels: ndarray
         images: ndarray
 
-        with open(data_path, 'rb') as file:
+        with open(os.path.join(ROOT, data_path), 'rb') as file:
             labels, images = pickle.load(file)
 
         self.labels = np.round(labels, 5)
@@ -373,58 +365,3 @@ class GaussianDataset(Dataset):
         for label in np.unique(labels)[:len(self.unknown)]:
             labels[labels == label] /= self._unknown_factor
         return labels
-
-
-def loader_init(
-        dataset: DarkDataset,
-        batch_size: int = 120,
-        val_frac: float = 0.1,
-        idxs: ndarray = None) -> tuple[DataLoader, DataLoader]:
-    """
-    Initialises training and validation data loaders
-
-    Parameters
-    ----------
-    dataset : DarkDataset
-        Dataset to generate data loaders for
-    batch_size : int, default = 1024
-        Number of data inputs per weight update,
-        smaller values update the network faster and requires less memory, but is more unstable
-    val_frac : float, default = 0.1
-        Fraction of validation data
-    idxs : ndarray, default = None
-        Data indices for random training & validation datasets
-
-    Returns
-    -------
-    tuple[DataLoader, DataLoader]
-        Dataloaders for the training and validation datasets
-    """
-    kwargs = get_device()[0]
-
-    # Fetch dataset & calculate validation fraction
-    val_amount = max(int(len(dataset) * val_frac), 1)
-
-    # If network hasn't trained on data yet, randomly separate training and validation
-    if idxs is None or idxs.size != len(dataset):
-        # indices = np.random.choice(len(dataset), len(dataset), replace=False)
-        idxs = np.arange(len(dataset))
-        np.random.shuffle(idxs)
-
-    dataset.idxs = idxs
-
-    train_dataset = Subset(dataset, idxs[:-val_amount])
-    val_dataset = Subset(dataset, idxs[-val_amount:])
-
-    # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, **kwargs)
-
-    if val_frac == 0:
-        val_loader = train_loader
-    else:
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, **kwargs)
-
-    print(f'\nTraining data size: {len(train_loader.dataset)}'
-          f'\tValidation data size: {len(val_loader.dataset)}')
-
-    return train_loader, val_loader

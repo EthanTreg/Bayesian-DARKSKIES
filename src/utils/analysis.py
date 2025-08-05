@@ -360,8 +360,8 @@ def mult_distributions(data: ndarray, bins: int = 500) -> tuple[ndarray, ndarray
     Parameters
     ----------
     data : ndarray
-        Distributions to multiply with shape (...,C,R,N) and type float, where C is the number of
-        classes, R is the number of distributions, and N is the number of points, or shape (...,C,R)
+        Distributions to multiply with shape (...,R,C,N) and type float, where C is the number of
+        classes, R is the number of distributions, and N is the number of points, or shape (...,R,C)
         and type object, where each element is a list of points
     bins : int, default = 500
         Number of bins when approximating the distributions using a gaussian kernel
@@ -374,38 +374,36 @@ def mult_distributions(data: ndarray, bins: int = 500) -> tuple[ndarray, ndarray
     """
     shape: tuple[int, ...]
     new_data: ndarray
-    ranges: ndarray = np.empty(
-        (*(data.shape[:-2] if data.dtype.type == np.object_ else data.shape[:-3]), 2),
-        dtype=object,
+    grids: ndarray = np.empty(
+        (*(data.shape[:-2] if data.dtype.type == np.object_ else data.shape[:-3]), bins),
     )
-    grids: ndarray = np.empty((*ranges.shape[:-1], bins))
 
+    # Change data from (...,R,C,N) to (...,C,R,N)
     data = data.swapaxes(-1 if data.dtype.type == np.object_ else -3, -2)
     new_data = np.empty((
         *data.shape[:-1 if data.dtype.type == np.object_ else -2],
         bins,
     ))
 
-    for shape in np.ndindex(ranges.shape[:-1]):
-        ranges[*shape] = (
-            min(np.min(values) for values in data[*shape].reshape(
-                *((-1,) if data.dtype.type == np.object_ else (-1, data.shape[-1])),
-            )),
-            max(np.max(values) for values in data[*shape].reshape(
-                *((-1,) if data.dtype.type == np.object_ else (-1, data.shape[-1])),
-            )),
-        )
-
-    for shape in np.ndindex(ranges.shape[:-1]):
-        grids[*shape] = np.mgrid[ranges[*shape, 0]:ranges[*shape, 1]:bins * 1j]
+    # Calculate the grid for each set of (R,C,N)
+    for shape in np.ndindex(grids.shape[:-1]):
+        grids[*shape] = np.mgrid[
+                        min(np.min(values) for values in data[*shape].reshape(
+                            *((-1,) if data.dtype.type == np.object_ else (-1, data.shape[-1])),
+                        )):max(np.max(values) for values in data[*shape].reshape(
+                            *((-1,) if data.dtype.type == np.object_ else (-1, data.shape[-1])),
+                        )):bins * 1j
+                        ]
 
     for shape in np.ndindex(data.shape[slice(None if data.dtype.type == np.object_ else -1)]):
+        # If first distribution for the given class
         if shape[-1] == 0:
             new_data[*shape[:-1]] = distribution_func(
                 data[*shape],
                 bins=bins,
                 grid=grids[*shape[:-2]],
             )[1]
+        # All other distributions for the given class are multiplied with the current distribution
         else:
             new_data[*shape[:-1]] *= distribution_func(
                 data[*shape],

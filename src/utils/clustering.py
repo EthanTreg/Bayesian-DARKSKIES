@@ -1,6 +1,7 @@
 """
 Architectures that cluster data
 """
+from warnings import warn
 from typing import Any, Self
 
 import torch
@@ -121,10 +122,6 @@ class ClusterEncoder(BaseNetwork):
         Path to the network save file
     classes : (C) Tensor
         Classes of size C for clustering
-    optimiser : Optimizer
-        Network optimiser, uses AdamW optimiser
-    scheduler : LRScheduler
-        Optimiser scheduler, uses reduce learning rate on plateau
     net : Module | Network
         Neural network
     sim_loss : float, default = 1
@@ -138,14 +135,21 @@ class ClusterEncoder(BaseNetwork):
     center_step : float, default = 1
         How far the cluster center should move towards the batch cluster center, if 0, cluster
         centers will be fixed
+    save_path : str, default = ''
+        Path to the network save file
     description : str, default = ''
         Description of the network training
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current network training and validation losses
     transforms : dict[str, BaseTransform | None], default = {...: None, ...}
         Keys for the output data from predict and corresponding transforms
-    idxs: (N) ndarray, default = None
-        Data indices for random training & validation datasets
+    idxs: ndarray, default = None
+        Data indices with shape (N), where N is the number of elements in the dataset for random
+        training & validation datasets
+    optimiser : Optimizer | None, default = None
+        Network optimiser, if learning rate is provided AdamW will be used
+    scheduler : LRScheduler, default = None
+        Optimiser scheduler, if learning rate is provided ReduceLROnPlateau will be used
 
     Methods
     -------
@@ -160,6 +164,7 @@ class ClusterEncoder(BaseNetwork):
             states_dir: str,
             classes: Tensor,
             net: nn.Module | Network,
+            overwrite: bool = False,
             mix_precision: bool = False,
             unknown: int = 1,
             learning_rate: float = 1e-3,
@@ -179,6 +184,9 @@ class ClusterEncoder(BaseNetwork):
             Classes of size C for clustering
         net : Module | Network
             Network to predict low-dimensional data
+        overwrite : bool, default = False
+            If saving can overwrite an existing save file, if True and file with the same name
+            exists, an error will be raised
         mix_precision: bool, default = False
             If mixed precision should be used
         unknown : int, default = 1
@@ -201,6 +209,7 @@ class ClusterEncoder(BaseNetwork):
             save_num,
             states_dir,
             net,
+            overwrite=overwrite,
             mix_precision=mix_precision,
             learning_rate=learning_rate,
             description=description,
@@ -251,15 +260,24 @@ class ClusterEncoder(BaseNetwork):
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         super().__setstate__(state)
-        self._unknown = state['unknown']
-        self._method = state['method']
-        self._cluster_centers = state['cluster_centers']
+        self._unknown = state['unknown'] if 'unknown' in state else state['_unknown']
+        self._method = state['method'] if 'method' in state else state['_method']
+        self._cluster_centers = state['cluster_centers'] if 'cluster_centers' in state else \
+            state['_cluster_centers']
         self.sim_loss = state['sim_loss']
         self.class_loss = state['class_loss']
         self.compact_loss = state['compact_loss']
         self.distance_loss = state['distance_loss']
         self.classes = state['classes']
         self.center_step = state['center_step']
+
+        if 'unknown' not in state:
+            warn(
+                'Network is saved from an old version and is deprecated, please resave '
+                'the network in the new format using net.save()',
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
     def _init_clusters(self, latent_dim: int) -> None:
         """
@@ -486,10 +504,6 @@ class CompactClusterEncoder(ClusterEncoder):
     ----------
     classes : (C) Tensor
         Classes of size C for clustering
-    optimiser : Optimizer
-        Network optimiser, uses AdamW optimiser
-    scheduler : LRScheduler
-        Optimiser scheduler, uses reduce learning rate on plateau
     net : Module | Network
         Encoder network
     epsilon : float, default = 1e-2
@@ -503,14 +517,21 @@ class CompactClusterEncoder(ClusterEncoder):
     center_step : float, default = 1
         How far the cluster center should move towards the batch cluster center, if 0, cluster
         centers will be fixed
+    save_path : str, default = ''
+        Path to the network save file
     description : str, default = ''
         Description of the network training
     losses : tuple[list[Tensor], list[Tensor]], default = ([], [])
         Current encoder training and validation losses
     transforms : dict[str, BaseTransform | None], default = {...: None, ...}
         Keys for the output data from predict and corresponding transforms
-    idxs: (N) ndarray, default = None
-        Data indices for random training & validation datasets
+    idxs: ndarray, default = None
+        Data indices with shape (N), where N is the number of elements in the dataset for random
+        training & validation datasets
+    optimiser : Optimizer | None, default = None
+        Network optimiser, if learning rate is provided AdamW will be used
+    scheduler : LRScheduler, default = None
+        Optimiser scheduler, if learning rate is provided ReduceLROnPlateau will be used
 
     Methods
     -------
@@ -525,6 +546,7 @@ class CompactClusterEncoder(ClusterEncoder):
             states_dir: str,
             classes: Tensor,
             net: nn.Module | Network,
+            overwrite: bool = False,
             mix_precision: bool = False,
             steps: int = 3,
             unknown: int = 1,
@@ -545,6 +567,9 @@ class CompactClusterEncoder(ClusterEncoder):
             Classes available for clustering for C possible classes
         net : Module | Network
             Network to cluster predict low-dimensional data
+        overwrite : bool, default = False
+            If saving can overwrite an existing save file, if True and file with the same name
+            exists, an error will be raised
         mix_precision: bool, default = False
             If mixed precision should be used
         steps : int, default = 3
@@ -570,6 +595,7 @@ class CompactClusterEncoder(ClusterEncoder):
             states_dir,
             classes,
             net,
+            overwrite=overwrite,
             mix_precision=mix_precision,
             unknown=unknown,
             learning_rate=learning_rate,
@@ -596,7 +622,7 @@ class CompactClusterEncoder(ClusterEncoder):
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         super().__setstate__(state)
-        self._steps = state['steps']
+        self._steps = state['steps'] if 'steps' in state else state['_steps']
         self.cluster_loss = state['cluster_loss']
         self.epsilon = state['epsilon'] if 'epsilon' in state else 1e-2
 
@@ -859,7 +885,7 @@ class CompactClusterEncoder(ClusterEncoder):
 
         # Add gradient gate for saliency per latent dimension
         self.net.net.insert(idx, GradGate())
-        self.net.layers.insert(idx, {'type': GradGate.__name__})
+        self.net.config['layers'].insert(idx, {'type': GradGate.__name__})
 
         # Calculate saliencies for the dataset
         for ids, low_dim, high_dim, *_ in loader:
@@ -891,7 +917,7 @@ class CompactClusterEncoder(ClusterEncoder):
 
         # Remove gradient gate
         del self.net.net[idx]
-        del self.net.layers[idx]
+        del self.net.config['layers'][idx]
         torch.backends.cudnn.enabled = True
         return {key: np.concatenate(value) for key, value in data.items()}
 
