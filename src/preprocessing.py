@@ -205,5 +205,5 @@ if __name__ == "__main__":
     main(
         '../data/temp/',
         overwrite=True,
-        save_path='../data/bahamas_dmo.pkl',
+        save_path='../data/darkskies_0.07.pkl',
     )

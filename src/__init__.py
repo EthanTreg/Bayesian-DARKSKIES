@@ -34,15 +34,12 @@ if os.path.exists('../requirements.txt'):
 
 try:
     import torch
-    from src.utils import clustering
+    from src.utils import clustering, models
+    from netloader.utils.utils import safe_globals
 
     # Adds PyTorch BaseNetwork classes to list of safe PyTorch classes when loading saved
     # networks
-    torch.serialization.add_safe_globals([
-        net[1] for net in inspect.getmembers(
-            sys.modules[clustering.__name__],
-        ) if isinstance(net[1], type)
-    ])
+    safe_globals(__name__, [clustering, models])
 except ModuleNotFoundError:
     pass
 except ImportError:

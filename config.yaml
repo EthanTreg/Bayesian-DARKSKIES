@@ -24,21 +24,53 @@ main:
   # Variables for training the network
   training:
     # Number of epochs to train the network for
-    epochs: 200
+    epochs: 150
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
     network-save: 0
     # File number to load the network state
-    network-load: 10.3.0
+    network-load: 0
     # Learning rate for training the network
-    learning-rate: 1.0e-4
+    learning-rate: 1.0e-5
+    # Maximum learning rate for training the network if using OneCycleLR
+    max-learning-rate: 1.0e-3
     # Validation dataset fraction
     validation-fraction: 0.2
     # File name for network model to load
-    network-name: *network
+    network-name: *reduced_network
     # Network description
-    description: 'BAHAMAS & FLAMINGO'
+    description: 'Mix Up - No CDM - BAHAMAS-0.3 Unknown - OneCycleLR'
+    # Known simulations
+    known:
+#      - 'bahamas_cdm'
+#      - 'bahamas_cdm_low'
+#      - 'bahamas_cdm_hi'
+      - 'bahamas_0.03_mix'
+      - 'bahamas_0.1'
+      - 'bahamas_0.17_mix'
+#      - 'bahamas_0.3'
+      - 'bahamas_0.55_mix'
+#      - 'bahamas_dmo_1'
+      - 'bahamas_1'
+#      - 'flamingo'
+#      - 'flamingo_low'
+#      - 'flamingo_hi'
+#      - 'bahamas_dmo_cdm'
+#      - 'darkskies_cdm'
+#      - 'darkskies_0.1'
+#      - 'darkskies_0.2'
+    # Unknown simulations
+    unknown:
+#      - 'bahamas_0.1'
+      - 'bahamas_0.3'
+#      - 'flamingo_low_test'
+#      - 'bahamas_dmo_0.1'
+#      - 'noise'
+#      - 'tng'
+#      - 'darkskies_0.1'
+#      - 'bahamas_cdm_low'
+#      - 'bahamas_cdm_hi'
   # File location for different datasets
   data:
     # Path to the list containing the images and parameters
@@ -62,7 +94,9 @@ batch-train:
     # Path to the configuration directory for batch training
     config-dir: '../batch_train_configs/'
     # Name of the batch train configuration file
-    config: 'effective_cross_section'
+    config: 'final_nets'
+#    config: 'effective_cross_section'
+#    config: 'final_choices_regression'
     # Path to the list containing the images and parameters
     data-dir: *data_dir
   # Paths and directory locations for saving outputs
@@ -74,7 +108,7 @@ optimise:
   # Variables for optimising the network
   optimisation:
     # Number of epochs to train the network for
-    epochs: 100
+    epochs: 2
     # Number of trials to run
     trials: 50
     # File number to save the network progres
@@ -82,7 +116,7 @@ optimise:
     # File number to load the network state
     network-load: 0
     # File number to save the study progres
-    study-save: 7
+    study-save: 8
     # File number to load the study state
     study-load: 0
     # Number of epochs before pruning can occur
@@ -97,6 +131,20 @@ optimise:
   data:
     # Path to the directory for studies
     study-directory: *data_dir
+    # Simulations to train on
+    simulations:
+      -
+        - 'bahamas_cdm'
+        - 'bahamas_0.1'
+        - 'bahamas_0.3'
+        - 'bahamas_1'
+      -
+        - 'bahamas_cdm_low'
+        - 'bahamas_cdm_hi'
+      -
+        - 'darkskies_cdm'
+        - 'darkskies_0.1'
+        - 'darkskies_0.2'
   # Paths and directory locations for saving outputs
   output:
     # Path to save the base network object
