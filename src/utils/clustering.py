@@ -7,7 +7,7 @@ from typing import Any, Self
 import torch
 import numpy as np
 from numpy import ndarray
-from torch import Tensor, nn
+from torch import Tensor, nn, optim
 from torch.utils.data import DataLoader
 from netloader.networks import BaseNetwork
 from netloader.utils.utils import label_change
@@ -160,7 +160,7 @@ class ClusterEncoder(BaseNetwork):
     """
     def __init__(
             self,
-            save_num: int,
+            save_num: int | str,
             states_dir: str,
             classes: Tensor,
             net: nn.Module | Network,
@@ -172,11 +172,13 @@ class ClusterEncoder(BaseNetwork):
             method: str = 'mean',
             verbose: str = 'full',
             transform: BaseTransform | None = None,
-            in_transform: BaseTransform | None = None) -> None:
+            in_transform: BaseTransform | None = None,
+            optimiser_kwargs: dict[str, Any] | None = None,
+            scheduler_kwargs: dict[str, Any] | None = None) -> None:
         """
         Parameters
         ----------
-        save_num : int
+        save_num : int | str
             File number to save the network
         states_dir : str
             Directory to save the network
@@ -204,6 +206,10 @@ class ClusterEncoder(BaseNetwork):
             Transformation of the network's output
         in_transform : BaseTransform, default = None
             Transformation for the input data
+        optimiser_kwargs : dict[str, Any] | None, default = None
+            Optional keyword arguments to pass to set_optimiser
+        scheduler_kwargs : dict[str, Any] | None, default = None
+            Optional keyword arguments to pass to set_scheduler
         """
         super().__init__(
             save_num,
@@ -216,6 +222,8 @@ class ClusterEncoder(BaseNetwork):
             verbose=verbose,
             transform=transform,
             in_transform=in_transform,
+            optimiser_kwargs=optimiser_kwargs,
+            scheduler_kwargs=scheduler_kwargs,
         )
         self._unknown: int = unknown
         self._method: str = method
@@ -458,6 +466,50 @@ class ClusterEncoder(BaseNetwork):
         self._cluster_centers = self._cluster_centers.detach()
         return loss.item()
 
+    def _update_scheduler(
+            self,
+            epoch: float | None = None,
+            metrics: float | None = None,
+            **_: Any) -> None:
+        """
+        Updates the scheduler for the network
+
+        Parameters
+        ----------
+        epoch : float, default = None
+            Current epoch fraction from each batch update
+        """
+        if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+            super()._update_scheduler(metrics=metrics)
+            return
+
+        if epoch is None:
+            return
+
+        assert isinstance(self.scheduler, optim.lr_scheduler.OneCycleLR)
+        self.scheduler.step()
+
+    @staticmethod
+    def set_scheduler(optimiser: optim.Optimizer, **kwargs: Any) -> optim.lr_scheduler.LRScheduler:
+        """
+        Sets the OneCycleLR scheduler for the network
+
+        Parameters
+        ----------
+        optimiser : optim.Optimizer
+            Network optimiser
+        **kwargs
+            Optional keyword arguments to pass to the scheduler
+
+        Returns
+        -------
+        optim.lr_scheduler.LRScheduler
+            Optimiser scheduler
+        """
+        if 'max_lr' not in kwargs:
+            return super(ClusterEncoder, ClusterEncoder).set_scheduler(optimiser, **kwargs)
+        return optim.lr_scheduler.OneCycleLR(optimiser, **kwargs)
+
     def batch_predict(self, data: Tensor, **_: Any) -> tuple[ndarray, ndarray, ndarray]:
         """
         Generates predictions and latent space for the given data batch
@@ -542,7 +594,7 @@ class CompactClusterEncoder(ClusterEncoder):
     """
     def __init__(
             self,
-            save_num: int,
+            save_num: int | str,
             states_dir: str,
             classes: Tensor,
             net: nn.Module | Network,
@@ -555,11 +607,13 @@ class CompactClusterEncoder(ClusterEncoder):
             description: str = '',
             verbose: str = 'full',
             transform: BaseTransform | None = None,
-            in_transform: BaseTransform | None = None) -> None:
+            in_transform: BaseTransform | None = None,
+            optimiser_kwargs: dict[str, Any] | None = None,
+            scheduler_kwargs: dict[str, Any] | None = None) -> None:
         """
         Parameters
         ----------
-        save_num : int
+        save_num : int | str
             File number to save the network
         states_dir : str
             Directory to save the network
@@ -589,6 +643,10 @@ class CompactClusterEncoder(ClusterEncoder):
             Transformation of the network's output
         in_transform : BaseTransform, default = None
             Transformation for the input data
+        optimiser_kwargs : dict[str, Any] | None, default = None
+            Optional keyword arguments to pass to set_optimiser
+        scheduler_kwargs : dict[str, Any] | None, default = None
+            Optional keyword arguments to pass to set_scheduler
         """
         super().__init__(
             save_num,
@@ -604,6 +662,8 @@ class CompactClusterEncoder(ClusterEncoder):
             verbose=verbose,
             transform=transform,
             in_transform=in_transform,
+            optimiser_kwargs=optimiser_kwargs,
+            scheduler_kwargs=scheduler_kwargs,
         )
         self._steps: int = steps
         self.sim_loss: float = 0  # Unused
@@ -841,7 +901,6 @@ class CompactClusterEncoder(ClusterEncoder):
         # Distance loss
         if self.distance_loss:
             loss += self.distance_loss * self._cluster_centers_loss(latent[l_idxs], target[l_idxs])
-
         return loss
 
     def saliency(

@@ -5,9 +5,12 @@ import os
 import pickle
 from typing import Any, BinaryIO
 
+import torch
 import numpy as np
 from numpy import ndarray
 from scipy.stats import gaussian_kde
+from torch.utils.data import DataLoader
+from netloader.data import BaseDataset, loader_init
 
 
 def _key_summary(
@@ -295,6 +298,73 @@ def distributions(data: ndarray, targets: ndarray) -> ndarray:
         return new_data
 
 
+def gen_predictions(
+        batch_size: int,
+        val_frac: float,
+        nets: ndarray,
+        dataset: BaseDataset,
+        idxs: tuple[ndarray, ...] | list[ndarray] | ndarray | None = None) -> ndarray:
+    """
+    Generates predictions for each network
+
+    Parameters
+    ----------
+    batch_size : int
+        Batch size for the data loader
+    val_frac : float
+        Validation fraction for the data loader
+    nets : ndarray
+        Networks to generate predictions for of shape (...,R) and type BaseNetwork, where R is the
+        number of repeats in each test
+    dataset : BaseDataset
+        Dataset to generate predictions for
+    idxs : tuple[ndarray, ...] | list[ndarray] | ndarray | None, default = None
+        Dataset indexes for creating the subsets with shape (N,S), where N is the number of subsets
+        and S is the number of samples in each subset, will override net indexes if provided
+
+    Returns
+    -------
+    ndarray
+        Predictions for each network of shape (...,R) and type float
+    """
+    shape: tuple[int, ...]
+    loaders: tuple[DataLoader, ...]
+    low_dim: ndarray = dataset.low_dim.copy()
+    high_dim: ndarray = dataset.high_dim.copy()
+    predictions: ndarray = np.empty(nets.shape, dtype=object)
+    loader: DataLoader
+
+    for shape in np.ndindex(predictions.shape):
+        # Create data loader only for one network in repeats
+        if shape[-1] == 0:
+            nets[*shape].transforms['inputs'][1]._shape = high_dim.shape[1:]
+            dataset.high_dim = nets[*shape].transforms['inputs'](high_dim.copy())
+            dataset.low_dim = nets[*shape].transforms['targets'](low_dim.copy())
+
+            loaders = loader_init(
+                dataset,
+                batch_size=batch_size,
+                ratios=(1 - val_frac, val_frac) if idxs is None and nets[*shape].idxs is None else
+                (1,),
+                idxs=dataset.idxs[np.isin(
+                    dataset.extra['ids'],
+                    nets[*shape].idxs,
+                )] if idxs is None and nets[*shape].idxs is not None else idxs,
+            )
+            print(f'Loader Dataset Lengths: {[len(loader.dataset) for loader in loaders]}')
+
+        # Generate predictions
+        if predictions[*shape] is None:
+            nets[*shape].to('cuda')
+            predictions[*shape] = nets[*shape].predict(loaders[1])
+            nets[*shape].to('cpu')
+            torch.cuda.empty_cache()
+
+    dataset.low_dim = low_dim
+    dataset.high_dim = high_dim
+    return predictions
+
+
 def hyperparam_summary(path: str) -> tuple[list[int], ndarray, ndarray]:
     """
     Returns the accuracy and latent loss with standard deviations from the hyperparam_search results
@@ -521,6 +591,113 @@ def pred_distributions(targets: ndarray, preds: ndarray) -> list[ndarray]:
     return data
 
 
+def probs_distributions(
+        quantile_values: list[float],
+        predictions: ndarray,
+        nets: ndarray,
+        dataset: BaseDataset,
+        bins: int = 500) -> tuple[
+    dict[str, ndarray],
+    ndarray,
+    ndarray,
+    ndarray,
+    ndarray,
+    ndarray]:
+    """
+    Calculates the probability distributions and quantiles for the given predictions from batch
+    training and quantile values.
+
+    Parameters
+    ----------
+    quantile_values : list[float]
+        Quantiles to get the corresponding values for
+    predictions : ndarray
+        Predictions from each network in batch training of shape (...,R) and type object, where R is
+        the number of repeated networks
+    nets : ndarray
+        Network objects for each network prediction of shape (...,R) and type object
+    dataset : BaseDataset
+        Dataset that contains the labels for calculating the distributions for each label class
+    bins : int, default = 500
+        Number of bins for the product of distributions
+
+    Returns
+    -------
+    tuple[dict[str, ndarray], ndarray, ndarray, ndarray, ndarray, ndarray]
+        Dictionary of predictions for each network with predictions of shape (...,R) and type
+        object; distributions for each class for each network of shape (...,R,C) and type float,
+        where C is the number of classes; distribution products of shape (...,C,B) and type float,
+        where B is the number of bins uniformly sampled from the PDF; x-values for distribution
+        products of shape (...,B) and type float; distribution products normalised into a PDF of
+        shape (...,C,B) and type float; quantiles of the PDF of shape (Q,...,C) and type float,
+        where Q is the number of quantiles
+    """
+    i: int
+    percentile: float
+    key: str
+    shape: tuple[int, ...]
+    data_pred: dict[str, ndarray] = dict(zip(
+        predictions.flatten()[0].keys(),
+        [np.empty_like(predictions) for _ in range(len(predictions.flatten()[0].keys()))],
+    ))
+    dists: ndarray
+    grids: ndarray
+    probs: ndarray
+    cumsums: ndarray
+    quantiles: ndarray
+    new_distributions: ndarray
+
+    # Convert ndarray of dictionaries to dictionary of ndarrays
+    for key in data_pred:
+        for shape in np.ndindex(predictions.shape):
+            data_pred[key][*shape] = predictions[*shape][key].copy()
+
+    for key in data_pred:
+        try:
+            data_pred[key] = np.array(data_pred[key].tolist())
+        except ValueError:
+            pass
+
+    # Conversion of Encoder to ClusterEncoder predictions
+    if 'latent' not in data_pred:
+        for shape in np.ndindex(data_pred['preds'].shape[:2]):
+            data_pred['preds'][*shape] = nets[*shape, 0].transforms['targets'][1:](
+                data_pred['preds'][*shape],
+            )
+
+    # Generate distributions for each set of predictions & product of repeats of distributions
+    data_pred['targets'] = data_pred['targets'].squeeze(axis=-1)
+    dists = distributions(
+        data_pred['latent'][..., 0] if 'latent' in data_pred else
+        data_pred['preds'].squeeze(axis=-1),
+        dataset.low_dim[data_pred['ids'].astype(int)].squeeze(axis=-1),
+    )
+    grids, new_distributions = mult_distributions(dists, bins=bins)
+
+    # Untransform grids
+    for shape in np.ndindex(grids.shape[:-1]):
+        grids[*shape] = nets[*shape, 0].transforms['targets'](grids[*shape], back=True)
+
+    # Calculate quantile values
+    probs = np.empty_like(new_distributions)
+    cumsums = probs.copy()
+    quantiles = np.empty((len(quantile_values), *cumsums.shape[:-1]))
+
+    for shape in np.ndindex(new_distributions.shape[:-1]):
+        probs[*shape] = new_distributions[*shape] / np.trapezoid(
+            new_distributions[*shape],
+            np.log10(grids[*shape[:-1]]),
+        )
+        cumsums[*shape] = np.cumsum(probs[*shape] / np.sum(probs[*shape]))
+
+        for i, percentile in enumerate(quantile_values):
+            quantiles[i, *shape] = grids[*shape[:-1], np.argmin(
+                np.abs(cumsums[*shape] - percentile),
+                axis=-1,
+            )]
+    return data_pred, dists, new_distributions, grids, probs, quantiles
+
+
 def profiles(
         images: ndarray,
         norms: ndarray,
@@ -584,41 +761,6 @@ def profiles(
             )
 
     return np.unique(names), np.arange(2, min(centers), 2) * 20, total, x_ray, stellar
-
-
-def relative_vecs(vecs: ndarray, classes: ndarray) -> tuple[ndarray, ndarray]:
-    """
-    Calculates a set of vectors relative to the center of the set of vectors for each class.
-
-    Parameters
-    ----------
-    vecs : ndarray
-        Vectors with shape (N,...) and type float, where N is the number of vectors
-    classes : ndarray
-        Class labels with shape (N)
-
-    Returns
-    -------
-    tuple[ndarray, ndarray]
-        Class centers with shape (C,...), where C is the number of classes; and relative vectors
-        with shape (C,M,...) and type float or (C) with type object, where M is the number of
-        vectors per class if there are an equal amount; otherwise, each element contains the vectors
-        for each class of shape (M,...)
-    """
-    class_: int | float | str
-    centers: list[ndarray] = []
-    rel_vecs: list[ndarray] = []
-    idxs: ndarray
-
-    for class_ in np.unique(classes):
-        idxs = np.array(classes == class_)
-        centers.append(np.mean(vecs[idxs], axis=0))
-        rel_vecs.append(vecs[idxs] - centers[-1])
-
-    try:
-        return np.array(centers), np.array(rel_vecs)
-    except ValueError:
-        return np.array(centers), np.array(rel_vecs, dtype=object)
 
 
 def proj_1d(
@@ -703,6 +845,41 @@ def proj_all_inter_1d(vecs: ndarray, classes: ndarray) -> ndarray:
         proj_vecs.append(proj_1d(class_, centers, rel_vecs, np.unique(classes)))
 
     return np.array(proj_vecs, dtype=object)
+
+
+def relative_vecs(vecs: ndarray, classes: ndarray) -> tuple[ndarray, ndarray]:
+    """
+    Calculates a set of vectors relative to the center of the set of vectors for each class.
+
+    Parameters
+    ----------
+    vecs : ndarray
+        Vectors with shape (N,...) and type float, where N is the number of vectors
+    classes : ndarray
+        Class labels with shape (N)
+
+    Returns
+    -------
+    tuple[ndarray, ndarray]
+        Class centers with shape (C,...), where C is the number of classes; and relative vectors
+        with shape (C,M,...) and type float or (C) with type object, where M is the number of
+        vectors per class if there are an equal amount; otherwise, each element contains the vectors
+        for each class of shape (M,...)
+    """
+    class_: int | float | str
+    centers: list[ndarray] = []
+    rel_vecs: list[ndarray] = []
+    idxs: ndarray
+
+    for class_ in np.unique(classes):
+        idxs = np.array(classes == class_)
+        centers.append(np.mean(vecs[idxs], axis=0))
+        rel_vecs.append(vecs[idxs] - centers[-1])
+
+    try:
+        return np.array(centers), np.array(rel_vecs)
+    except ValueError:
+        return np.array(centers), np.array(rel_vecs, dtype=object)
 
 
 def summary(data: dict[str, ndarray]) -> tuple[ndarray, ndarray, ndarray, ndarray]:

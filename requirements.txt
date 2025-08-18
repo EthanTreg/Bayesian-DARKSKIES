@@ -16,4 +16,4 @@ torch~=2.7.0
 torchvision~=0.22.0
 
 sciplots @ git+https://github.com/EthanTreg/Science-Plots@v1.0.9
-netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@5644392
+netloader @ git+https://github.com/EthanTreg/PyTorch-Network-Loader@4217441

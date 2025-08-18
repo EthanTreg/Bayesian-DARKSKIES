@@ -32,31 +32,38 @@ main:
     # File number to load the network state
     network-load: 0
     # Learning rate for training the network
-    learning-rate: 1.0e-4
+    learning-rate: 1.0e-5
+    # Maximum learning rate for training the network if using OneCycleLR
+    max-learning-rate: 1.0e-3
     # Validation dataset fraction
     validation-fraction: 0.2
     # File name for network model to load
     network-name: *reduced_network
     # Network description
-    description: 'K, Log, NX, 1L, Test'
+    description: 'Mix Up - No CDM - BAHAMAS-0.3 Unknown - OneCycleLR'
     # Known simulations
     known:
-      - 'bahamas_cdm'
-      - 'bahamas_cdm_low'
-      - 'bahamas_cdm_hi'
+#      - 'bahamas_cdm'
+#      - 'bahamas_cdm_low'
+#      - 'bahamas_cdm_hi'
+      - 'bahamas_0.03_mix'
       - 'bahamas_0.1'
-      - 'bahamas_0.3'
+      - 'bahamas_0.17_mix'
+#      - 'bahamas_0.3'
+      - 'bahamas_0.55_mix'
 #      - 'bahamas_dmo_1'
       - 'bahamas_1'
 #      - 'flamingo'
 #      - 'flamingo_low'
 #      - 'flamingo_hi'
 #      - 'bahamas_dmo_cdm'
-      - 'darkskies_cdm'
-      - 'darkskies_0.1'
-      - 'darkskies_0.2'
+#      - 'darkskies_cdm'
+#      - 'darkskies_0.1'
+#      - 'darkskies_0.2'
     # Unknown simulations
     unknown:
+#      - 'bahamas_0.1'
+      - 'bahamas_0.3'
 #      - 'flamingo_low_test'
 #      - 'bahamas_dmo_0.1'
 #      - 'noise'

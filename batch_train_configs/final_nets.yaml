@@ -6,12 +6,12 @@ training:
   # given for that test
   unknown-cumulative: True
   # Number of epochs to train the network for
-  epochs: 150
+  epochs: 200
   # Number of repeats per test
   repeats: 5
-  # File number to save the network progres, should be a multiple of 100
-  batch-save: 49
-  # File number to load the network state, should be a multiple of 100
+  # File number to save the network progres
+  batch-save: 50
+  # File number to load the network state
   batch-load: 49
   # Learning rate for training the network
   learning-rate: 1.0e-4
@@ -36,7 +36,7 @@ training:
 #    - 'BAHAMAS-DMO-0, DMO-0.1 unknown'
 #    - 'BAHAMAS-DMO-1, DMO-0.1 unknown'
 
-    # Batch Train 44, 47, & 49
+    # Batch Train 44, 47, 49, & 50
     - 'BAHAMAS, DARKSKIES-0.1'
     - 'BAHAMAS AGN, DARKSKIES-0.1'
     - 'DARKSKIES-0, DARKSKIES-0.1'
@@ -85,7 +85,7 @@ training:
 #      - 'bahamas_dmo_cdm'
 #    -
 #      - 'bahamas_dmo_1'
-    # Batch Train 44, 47, & 49
+    # Batch Train 44, 47, 49, & 50
     -
       - 'bahamas_cdm'
       - 'bahamas_0.1'
@@ -144,7 +144,7 @@ training:
 #    - []
 #    - []
 #    - []
-    # Batch Train 44, 47. & 49
+    # Batch Train 44, 47, 49, & 50
     -
       - 'darkskies_0.1'
     - []
