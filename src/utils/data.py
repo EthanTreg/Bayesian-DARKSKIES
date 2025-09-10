@@ -3,14 +3,16 @@ Loads data and creates data loaders for network training
 """
 import os
 import pickle
+from types import ModuleType
 from typing import BinaryIO, Any
 
+import torch
 import numpy as np
 import pandas as pd
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.transforms import v2
-from netloader.data import BaseDataset, UNSET
+from netloader.data import BaseDataset
 from pandas import DataFrame
 from numpy import ndarray
 
@@ -54,7 +56,13 @@ class DarkDataset(BaseDataset):
     _unknown_factor: float = 1e-3
     _keys: tuple[str, ...] = ('ids', 'sims', 'names', 'norms')
 
-    def __init__(self, data_dir: str, sims: list[str], unknown_sims: list[str]) -> None:
+    def __init__(
+            self,
+            data_dir: str,
+            sims: list[str],
+            unknown_sims: list[str],
+            mix: bool = False,
+            cdm_sigma: float = 1e-2) -> None:
         """
         Parameters
         ----------
@@ -64,15 +72,20 @@ class DarkDataset(BaseDataset):
             Which simulations to load that are known
         unknown_sims : list[str]
             Which simulations to load that are unknown
+        mix : bool, default = False
+            If Mix-Up should be used for training
+        cdm_sigma : float, default = 1e-2
+            Effective cross-section for CDM simulations
         """
         super().__init__()
         label: float
-        log_0: float = 1e-2
         sim: str
         labels: dict[str, ndarray]
         sims_: ndarray
         images: ndarray
         extra: DataFrame
+        self._mix: bool = mix
+        self._idx: int = -1
         self.unknown: list[str] = unknown_sims
         self.aug: v2.Transform
         self.extra: DataFrame = DataFrame([])
@@ -86,7 +99,7 @@ class DarkDataset(BaseDataset):
             raise ValueError('Noise cannot be treated as a known simulation')
 
         for sim in sims_:
-            if sim.lower() == 'noise' and self.high_dim is not UNSET:
+            if sim.lower() == 'noise' and self.high_dim is not None:
                 labels, images, extra = self._generate_noise([int(1e3), *self.high_dim.shape[1:]])
             elif sim.lower() == 'noise':
                 raise ValueError('Cannot generate noise maps without existing data to base them '
@@ -101,13 +114,13 @@ class DarkDataset(BaseDataset):
 
             # Ensure there are no zero labels
             if label == 0:
-                label = log_0
+                label = cdm_sigma
 
             # Ensure unknown labels are the smallest
             if sim in self.unknown:
                 label *= self._unknown_factor
 
-            if self.high_dim is UNSET:
+            if self.high_dim is None:
                 self.high_dim = images[:, :3]
                 self.low_dim = np.ones(len(images)) * label
             else:
@@ -125,6 +138,21 @@ class DarkDataset(BaseDataset):
             v2.RandomVerticalFlip(p=0.5),
             v2.RandomRotation(degrees=(0, 180)),
         ])
+
+    def __getitem__(
+            self,
+            idx: int) -> tuple[int, ndarray | Tensor, ndarray | Tensor, Any]:
+        idxs: ndarray | Tensor
+
+        if self._mix and np.random.choice([True, False]):
+            idxs = (self.low_dim != self.low_dim[idx]).flatten()
+            self._idx = np.random.choice(self.idxs[~np.isin(
+                self.extra['sims'],
+                self.unknown,
+            ) & idxs if isinstance(idxs, ndarray) else idxs.numpy()])
+        elif self._mix:
+            self._idx = -1
+        return super().__getitem__(idx)
 
     @staticmethod
     def _load_data(sim: str, data_dir: str) -> tuple[dict[str, ndarray], ndarray, DataFrame]:
@@ -191,7 +219,26 @@ class DarkDataset(BaseDataset):
         ], dtype=object).swapaxes(0, 1))
         return {'label': labels}, images, extra
 
+    def get_low_dim(self, idx: int) -> ndarray | Tensor:
+        module: ModuleType
+
+        if self._mix and self._idx >= 0 and self.extra['sims'].iloc[idx] not in self.unknown:
+            module = np if isinstance(self.high_dim, ndarray) else torch
+            return module.log10(module.mean(
+                10 ** module.stack([self.low_dim[idx], self.low_dim[self._idx]]),
+                **{'axis' if isinstance(self.low_dim, ndarray) else 'dim': 0},
+            ))
+        return self.low_dim[idx]
+
     def get_high_dim(self, idx: int) -> ndarray | Tensor:
+        module: ModuleType
+
+        if self._mix and self._idx >= 0 and self.extra['sims'].iloc[idx] not in self.unknown:
+            module = np if isinstance(self.high_dim, ndarray) else torch
+            return self.aug(module.mean(
+                module.stack([self.high_dim[idx], self.high_dim[self._idx]]),
+                **{'axis' if isinstance(self.high_dim, ndarray) else 'dim': 0},
+            ))
         return self.aug(self.high_dim[idx])
 
     def get_extra(self, idx: int) -> list[Any]:

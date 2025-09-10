@@ -5,6 +5,7 @@ __pycache__/
 /venv/
 /data/
 /plots/
+/wandb/
 /model_states/*
 #!/model_states/*_1.pth
 model_states/*[Tt][Ee][Ss][Tt]*

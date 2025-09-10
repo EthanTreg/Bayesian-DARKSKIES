@@ -1,7 +1,7 @@
 {
   "net": {
     "checkpoints": 1,
-    "description": "Clustering Further Reduced",
+    "description": "network_v10 converted to standard classification/regression",
     "Conv": {
       "dropout": 0.1
     },
@@ -55,18 +55,6 @@
     },
     {
       "type": "Checkpoint"
-    },
-    {
-      "type": "Linear",
-      "features": 7,
-      "dropout": 0
-    },
-    {
-      "type": "Checkpoint"
-    },
-    {
-      "type": "Linear",
-      "features": 64
     },
     {
       "type": "Linear",

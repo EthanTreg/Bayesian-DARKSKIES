@@ -1,0 +1,138 @@
+{
+  "net": {
+    "checkpoints": 1,
+    "description": "network_v8 with batch & layer normalisation & no final activation",
+    "Composite": {
+      "name": "inception_norm",
+      "config_dir": "../network_configs/composite_layers/",
+      "defaults": {
+        "Conv": {
+          "dropout": 0.05
+        }
+      }
+    }
+  },
+  "layers": [
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Composite",
+      "channels": 64
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 128
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "AdaptivePool",
+      "shape": [1]
+    },
+    {
+      "type": "Reshape",
+      "shape": [-1]
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 256
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 7,
+      "batch_norm": true,
+      "dropout": 0
+    },
+    {
+      "type": "OrderedBottleneck",
+      "min_size": 1
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 64,
+      "batch_norm": true
+    },
+    {
+      "type": "Linear",
+      "factor": 1,
+      "dropout": 0,
+      "activation": null
+    }
+  ]
+}

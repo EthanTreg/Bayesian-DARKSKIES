@@ -125,7 +125,7 @@ def list_dict_convert(
     return new_data
 
 
-def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
+def main(dir_path: str, overwrite: bool = False, name: str = '', save_path: str = '') -> None:
     """
     Takes all pickle files in a directory and subdirectories of labels and images and combines them
     into a single pickle file
@@ -136,23 +136,26 @@ def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
         Path to the directory
     overwrite : bool, default = False
         If a file with the same save name already exists, should it be overwritten
+    name : str, default = ''
+        Name of the data
     save_path : str, default = ''
         Path to save the combined pickle file, if empty, will not save
     """
     root: str
+    path: str
     files: list[str]
     value: list[float] | list[ndarray]
     image: list[ndarray] | ndarray
     images: list[ndarray] | ndarray = []
     label: (dict[str, float | list[float] | list[ndarray] | ndarray] |
             list[dict[str, float | ndarray]])
-    labels: dict[str, list[float | None] | list[ndarray] | ndarray] = {}
+    labels: dict[str, str | list[float | None] | list[ndarray] | ndarray] = {}
     file: BinaryIO
 
     # Loop through all files in the directory and subdirectories
     for root, _, files in os.walk(dir_path):
-        for name in files:
-            label, image = load_pickle(f'{root}/{name}')
+        for path in files:
+            label, image = load_pickle(os.path.join(root, path))
 
             # If the label is a list of dictionaries, convert to dictionary of lists
             if isinstance(label, list):
@@ -186,6 +189,7 @@ def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
         images = np.moveaxis(images, -1, 1)
 
     # Normalise images and save normalisations in labels
+    labels['name'] = name
     labels['norms'] = np.max(images, axis=(-2, -1))
     images /= labels['norms'][..., np.newaxis, np.newaxis]
 
@@ -203,7 +207,8 @@ def main(dir_path: str, overwrite: bool = False, save_path: str = '') -> None:
 
 if __name__ == "__main__":
     main(
-        '../data/temp/',
+        '../data/darkskies/images/SIDM0.2/',
         overwrite=True,
-        save_path='../data/darkskies_0.07.pkl',
+        name='DARKSKIES-0.2',
+        save_path='../data/darkskies_0.2_temp.pkl',
     )

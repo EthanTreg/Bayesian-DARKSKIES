@@ -1,24 +1,38 @@
 {
   "net": {
     "checkpoints": 1,
+    "description": "Same as v10 but with blocks & layer norm",
+    "Linear": {
+      "dropout": 0.05
+    },
     "Composite": {
       "name": "inception",
-      "config_dir": "../network_configs/composite_layers/",
+      "config_dir": "../../network_configs/composite_layers/",
       "defaults": {
         "Conv": {
-          "dropout": 0.05
+          "dropout": 0.05,
+          "activation": "GELU"
         }
       }
-    },
-    "description": "Clustering"
+    }
   },
   "layers": [
     {
-      "type": "Checkpoint"
+      "type": "Composite",
+      "channels": 32
+    },
+    {
+      "type": "BatchNorm"
+    },
+    {
+      "type": "Pool"
     },
     {
       "type": "Composite",
       "channels": 64
+    },
+    {
+      "type": "BatchNorm"
     },
     {
       "type": "Pool"
@@ -28,26 +42,14 @@
       "channels": 128
     },
     {
-      "type": "Pool"
+      "type": "BatchNorm"
     },
     {
       "type": "Composite",
-      "channels": 256
+      "channels": 128
     },
     {
-      "type": "Composite",
-      "channels": 256
-    },
-    {
-      "type": "Pool"
-    },
-    {
-      "type": "Composite",
-      "channels": 256
-    },
-    {
-      "type": "Composite",
-      "channels": 256
+      "type": "BatchNorm"
     },
     {
       "type": "Pool"
@@ -57,8 +59,35 @@
       "channels": 256
     },
     {
+      "type": "BatchNorm"
+    },
+    {
       "type": "Composite",
       "channels": 256
+    },
+    {
+      "type": "BatchNorm"
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 512
+    },
+    {
+      "type": "BatchNorm"
+    },
+    {
+      "type": "Composite",
+      "channels": 512
+    },
+    {
+      "type": "BatchNorm"
+    },
+    {
+      "type": "AdaptivePool",
+      "shape": 1
     },
     {
       "type": "Reshape",
@@ -78,10 +107,6 @@
       "type": "Linear",
       "features": 7,
       "dropout": 0
-    },
-    {
-      "type": "OrderedBottleneck",
-      "min_size": 1
     },
     {
       "type": "Checkpoint"

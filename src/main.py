@@ -117,7 +117,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             learning_rate=learning_rate,
             method='median',
             description=description,
-            verbose='plot',
+            verbose='progress',
             transform=param_transform,
             in_transform=transform,
             scheduler_kwargs={
@@ -176,7 +176,7 @@ def init(
         unknown = []
 
     # Fetch dataset & network
-    dataset = DarkDataset(data_dir, known, unknown)
+    dataset = DarkDataset(data_dir, known, unknown, mix=False)
     dataset.low_dim = dataset.unique_labels(dataset.low_dim, dataset.extra['sims'])
     net = net_init(dataset, config)
 
@@ -211,11 +211,9 @@ def main(config_path: str = '../config.yaml'):
     unknown: list[str]
     # plot_colours: list[str] = plot_config.bahamas_agn + plot_config.bahamas
     plot_colours: list[str] = [
-        *plot_config.BAHAMAS[2],
-        plot_config.FLAMINGO[0],
-        plot_config.BAHAMAS[1],
-        *plot_config.FLAMINGO[1:],
-        plot_config.BAHAMAS[-1],
+        plot_config.BAHAMAS[2],
+        *plot_config.BAHAMAS[:2],
+        plot_config.BAHAMAS[3],
     ]
     param_names: list[str] = [
         r'$\sigma_{\rm DM}$',
@@ -257,6 +255,8 @@ def main(config_path: str = '../config.yaml'):
 
     # Train network
     net.training(net_epochs, loaders)
+
+    dataset._mix = False
 
     # Generate predictions
     data = net.predict(loaders[1])

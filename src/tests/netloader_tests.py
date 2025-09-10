@@ -29,32 +29,36 @@ class TestConfig:
     ----------
     name : str
         Name of the test
+    net_name : str
+        Name of the network configuration file to use
     description : str
         Description of the test
     dataset_args : dict[str, Any]
         Keyword arguments for the dataset initialization
-    net_name : str
-        Name of the network configuration file to use
-    network_mod_params : dict[str, Any] | None, default = None
-        Keyword arguments for the network modification function
     hyperparams : dict[str, Any] | None, default = None
         Optional hyperparameters for the test
+    custom_fn_params : dict[str, Any] | None, default = None
+        Keyword arguments for the custom function
+    network_mod_params : dict[str, Any] | None, default = None
+        Keyword arguments for the network modification function
     network_mod_fn : Callable[[dict[str, dict[str, Any] | list[dict[str, Any]]], Any], None] | None, default = None
         Function to modify the network configuration before training
     custom_fn : Callable[[Any], None] | None, default = None
         Function to run custom logic after training, receives locals() as argument
     """
+    # pylint: enable=line-too-long
     name: str
+    net_name: str
     description: str
     dataset_args: dict[str, Any]
-    net_name: str
-    network_mod_params: dict[str, Any] | None = None
     hyperparams: dict[str, Any] | None = None
+    custom_fn_params: dict[str, Any] | None = None
+    network_mod_params: dict[str, Any] | None = None
     network_mod_fn: Callable[
                         [dict[str, dict[str, Any] | list[dict[str, Any]]], Any],
                         None,
                     ] | None = None
-    custom_fn: Callable[[Any], None] | None = None
+    custom_fn: Callable[[...], None] | None = None
 
 
 def mod_network(nets_dir: str, test: TestConfig) -> str:
@@ -92,8 +96,42 @@ def mod_network(nets_dir: str, test: TestConfig) -> str:
 
     with open(os.path.join(ROOT, nets_dir, new_name) + '.json', 'w', encoding='utf-8') as file:
         json.dump(config, file)
-
     return new_name
+
+
+def gen_indexes(data: pd.DataFrame, skip: int = 0):
+    """
+    Generates unique indexes for a data frame.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Data frame to generate indexes for
+    skip : int, default = 0
+        How many columns to skip when generating indexes
+    """
+    key: str
+    idxs: np.ndarray
+    vals: np.ndarray
+
+    if len(data) < 2:
+        return
+
+    # Add index columns for columns with unique values
+    for key in data.keys()[skip:]:
+        try:
+            idxs = pd.factorize(data[key])[0]
+        except TypeError:
+            idxs = pd.factorize(data[key].apply(tuple))[0]
+
+        if 1 < len(np.unique(idxs)) < len(data):
+            data[f'{key}_idx'] = idxs
+            data.set_index(f'{key}_idx', inplace=True, append=True)
+
+    if isinstance(data.index, pd.MultiIndex):
+        vals = np.array(data.index.values.tolist()).swapaxes(0, 1)
+        idxs = np.sort(np.unique(vals, axis=0, return_index=True)[1])
+        data.index = pd.MultiIndex.from_arrays(vals[idxs], names=np.array(data.index.names)[idxs])
 
 
 def run_tests(
@@ -127,7 +165,6 @@ def run_tests(
         'net_path',
         'description',
         'losses',
-        'test_config',
         *(tests[0].dataset_args if tests[0].dataset_args else []),
         *(tests[0].network_mod_params if tests[0].network_mod_params else []),
         *(tests[0].hyperparams if tests[0].hyperparams else []),
@@ -183,7 +220,7 @@ def run_tests(
 
         # 4. Custom user logic (optional)
         if test.custom_fn:
-            test.custom_fn(locals())
+            test.custom_fn(locals(), **test.custom_fn_params or {})
 
         # 5. Train and evaluate
         net.training(config['training']['epochs'], loaders)
@@ -199,14 +236,14 @@ def run_tests(
             **(test.dataset_args or {}),
             **(test.hyperparams or {}),
             **(test.network_mod_params or {}),
-        }])))
+            **(test.custom_fn_params or {}),
+        }])), ignore_index=True)
+        gen_indexes(results, skip=3)
 
         if test.network_mod_fn:
             os.remove(os.path.join(nets_dir, net_name) + '.json')
 
-        if not save:
-            continue
-
-        # 6. Save results
+    # 6. Save results
+    if save:
         with open(os.path.join(ROOT, results_path), 'wb') as file:
             pickle.dump(results, file)

@@ -1,24 +1,39 @@
 {
   "net": {
     "checkpoints": 1,
+    "description": "Same as v10 but with blocks & layer norm",
+    "Linear": {
+      "dropout": 0.1
+    },
     "Composite": {
       "name": "inception",
       "config_dir": "../network_configs/composite_layers/",
       "defaults": {
         "Conv": {
-          "dropout": 0.05
+          "activation": "GELU"
         }
       }
-    },
-    "description": "Save as v8 but as an encoder"
+    }
   },
   "layers": [
     {
-      "type": "Checkpoint"
+      "type": "Composite",
+      "channels": 32
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
     },
     {
       "type": "Composite",
       "channels": 64
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
     },
     {
       "type": "Pool"
@@ -28,26 +43,16 @@
       "channels": 128
     },
     {
-      "type": "Pool"
+      "type": "LayerNorm",
+      "dims": 1
     },
     {
       "type": "Composite",
-      "channels": 256
+      "channels": 128
     },
     {
-      "type": "Composite",
-      "channels": 256
-    },
-    {
-      "type": "Pool"
-    },
-    {
-      "type": "Composite",
-      "channels": 256
-    },
-    {
-      "type": "Composite",
-      "channels": 256
+      "type": "LayerNorm",
+      "dims": 1
     },
     {
       "type": "Pool"
@@ -57,8 +62,39 @@
       "channels": 256
     },
     {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
       "type": "Composite",
       "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 512
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 512
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "AdaptivePool",
+      "shape": 1
     },
     {
       "type": "Reshape",
@@ -73,6 +109,18 @@
     },
     {
       "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 7,
+      "dropout": 0
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 64
     },
     {
       "type": "Linear",

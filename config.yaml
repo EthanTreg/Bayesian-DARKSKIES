@@ -28,7 +28,7 @@ main:
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 0
+    network-save: 'shear_7.1'
     # File number to load the network state
     network-load: 0
     # Learning rate for training the network
@@ -38,21 +38,21 @@ main:
     # Validation dataset fraction
     validation-fraction: 0.2
     # File name for network model to load
-    network-name: *reduced_network
+    network-name: 'network_v17'
     # Network description
-    description: 'Mix Up - No CDM - BAHAMAS-0.3 Unknown - OneCycleLR'
+    description: 'Shear - BAHAMAS-0.3 Unknown - OneCycleLR'
     # Known simulations
     known:
-#      - 'bahamas_cdm'
+      - 'bahamas_cdm_shear'
 #      - 'bahamas_cdm_low'
 #      - 'bahamas_cdm_hi'
-      - 'bahamas_0.03_mix'
-      - 'bahamas_0.1'
-      - 'bahamas_0.17_mix'
+#      - 'bahamas_0.03_mix'
+      - 'bahamas_0.1_shear'
+#      - 'bahamas_0.17_mix'
 #      - 'bahamas_0.3'
-      - 'bahamas_0.55_mix'
+#      - 'bahamas_0.55_mix'
 #      - 'bahamas_dmo_1'
-      - 'bahamas_1'
+      - 'bahamas_1_shear'
 #      - 'flamingo'
 #      - 'flamingo_low'
 #      - 'flamingo_hi'
@@ -63,7 +63,7 @@ main:
     # Unknown simulations
     unknown:
 #      - 'bahamas_0.1'
-      - 'bahamas_0.3'
+      - 'bahamas_0.3_shear'
 #      - 'flamingo_low_test'
 #      - 'bahamas_dmo_0.1'
 #      - 'noise'
@@ -103,7 +103,7 @@ batch-train:
   output:
     # Directory to save the results
     batch-train-dir: '../data/'
-# optimise.py and hyperparam_search.py config file
+# optimise.py config file
 optimise:
   # Variables for optimising the network
   optimisation:

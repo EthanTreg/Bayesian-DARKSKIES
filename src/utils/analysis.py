@@ -83,6 +83,7 @@ def _summary(data: dict[str, Any]) -> dict[str, Any]:
 def _batch_train_summary(
         num: int,
         dir_: str,
+        prefix: str,
         idx: int | None = None) -> dict[str, list[Any]]:
     """
     Generates a summary for a single file generated from batch_train.py
@@ -93,6 +94,8 @@ def _batch_train_summary(
         Batch train file number
     dir_ : str
         Path to the directory for the batch training data
+    prefix : str
+        Prefix for the file name
     idx : int | None, default = None
         Which run to get the results for, if None, all runs will be used
 
@@ -108,7 +111,7 @@ def _batch_train_summary(
     datum: dict[str, Any]
     val: Any
 
-    with open(os.path.join(dir_, f'batch_train_{num}.pkl'), 'rb') as file:
+    with open(os.path.join(dir_, f'{prefix}_{num}.pkl'), 'rb') as file:
         data = pickle.load(file)
 
     # Loop through all runs in the batch training file
@@ -163,6 +166,7 @@ def _red_chi_acc(
 def batch_train_summary(
         num: int | range,
         dir_: str,
+        prefix: str,
         idx: int | None = None) -> dict[str, list[list[Any]] | ndarray]:
     """
     Calculate a summary for data generated from batch_train.py
@@ -173,6 +177,8 @@ def batch_train_summary(
         Batch train number or range of numbers
     dir_ : str
         Path to the directory for the batch training data
+    prefix : str
+        Prefix for the file name
     idx : int | None, default = None
         Which run to get the results for, if None, all runs will be used
 
@@ -192,7 +198,7 @@ def batch_train_summary(
     num = range(num, num + 1) if isinstance(num, int) else num
 
     for i in num:
-        data = _batch_train_summary(i, dir_, idx)
+        data = _batch_train_summary(i, dir_, prefix, idx)
 
         for key, val in data.items():
             if isinstance(val, ndarray):
