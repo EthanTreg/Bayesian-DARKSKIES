@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 from numpy import ndarray
+from netloader.networks import BaseNetwork
 
 from src.batch_train import update_sims
 from src.utils.utils import open_config
@@ -35,6 +36,35 @@ def change_latent_dim(
             break
 
     config['layers'][-i - 2]['features'] = latent_dim
+
+
+def net_accuracy(kwargs: Any) -> None:
+    """
+    Calculate the accuracy of the network on the test set and stores it in data['accuracy'] from
+    locals.
+
+    Parameters
+    ----------
+    **kwargs :
+        excluded_columns : list[str]
+            Columns to exclude from the dataset
+        loaders : list[DataLoader]
+            The data loaders for the dataset
+        data : dict[str, Any]
+            Dictionary to store the accuracy in
+        net : BaseNetwork
+            The network to evaluate
+    """
+    data: dict[str, Any]
+    net: BaseNetwork = kwargs['net']
+
+    if 'accuracy' not in kwargs['excluded_columns']:
+        kwargs['excluded_columns'].append('accuracy')
+
+    data = net.predict(kwargs['loaders'][-1])
+    kwargs['data']['accuracy'] = np.count_nonzero(
+        data['preds'] == data['targets'].squeeze()
+    ) / len(data['targets'])
 
 
 def generate_test_configs(
@@ -86,14 +116,19 @@ def generate_test_configs(
             for k in range(repeats):
                 tests.append(
                     TestConfig(
-                        f'{i}.{j}.{k}',
-                        f'{description}\n' if description else ''
+                        name=f'{i}.{j}.{k}',
+                        net_name=net_name,
+                        description=(f'{description}\n' if description else '') +
                         f'Latent Dim: {latent_dim}\nSims: {current_known}',
-                        {'data_dir': data_dir, 'sims': current_known.tolist(), 'unknown_sims': []},
-                        net_name,
+                        dataset_args={
+                            'data_dir': data_dir,
+                            'sims': current_known.tolist(),
+                            'unknown_sims': [],
+                        },
                         network_mod_params={'latent_dim': latent_dim},
                         hyperparams=hyperparams,
                         network_mod_fn=change_latent_dim,
+                        post_train_fn=net_accuracy,
                     )
                 )
     return tests
@@ -108,10 +143,14 @@ def main(config_path: str = '../config.yaml') -> None:
     config_path : str, default = '../config.yaml'
         Path to the configuration file
     """
-    repeats: int = 3
+    x_rays: bool = False
+    skip: int = 2
+    repeats: int = 5
     epochs: int = 150
-    save: int | str = 'latent_1'
-    load: int | str = save
+    channels: int
+    save: int | str
+    load: int | str
+    description: str
     latent_dims: list[int] = np.concat((
         np.arange(1, 10),
         np.arange(10, 22, 2),
@@ -121,20 +160,41 @@ def main(config_path: str = '../config.yaml') -> None:
         ['bahamas_cdm_low', 'bahamas_cdm_hi'],
         ['darkskies_cdm', 'darkskies_0.1', 'darkskies_0.2'],
         ['flamingo', 'flamingo_low', 'flamingo_hi'],
-    ]
+    ][:-1]
     config: dict[str, Any]
     hyperparams: dict[str, Any] = {'epochs': epochs}
+    test: TestConfig
+
+    if x_rays:
+        save = 'test_latent_1'
+        load = save
+        channels = 2
+        description = 'X-Rays'
+    else:
+        save = 'test_latent_2'
+        load = save
+        channels = 1
+        description = 'No X-Rays'
 
     _, config = open_config('main', config_path)
+    config['training']['seed'] = -1
+    config['training']['image-channels'] = channels
+    config['training']['cdm-sigma'] = 1e-2
     tests = generate_test_configs(
         repeats,
         'network_v10',
         config['data']['data-dir'],
         latent_dims,
         sim_sets,
-        hyperparams=hyperparams,
         cumulative=True,
+        description=description,
+        hyperparams=hyperparams,
     )
+    sub_tests = [
+        test for test in tests
+        if test.network_mod_params['latent_dim'] in (latent_dims[::skip] + [2])
+    ]
+
     run_tests(
         save,
         load,

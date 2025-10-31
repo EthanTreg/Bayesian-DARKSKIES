@@ -6,15 +6,15 @@ import pickle
 from typing import Any
 
 import numpy as np
+import sciplots as plots
 import netloader.networks as nets
 from numpy import ndarray, floating
+from netloader.data import loader_init
 from torch.utils.data import DataLoader
 
-# from src.utils import plots
-from src import plots
 from src.main import net_init
 from src.utils.utils import open_config
-from src.utils.data import GaussianDataset, loader_init
+from src.utils.data import GaussianDataset
 
 
 def init(
@@ -218,7 +218,7 @@ def main(config_path: str = '../config.yaml'):
             with open(save_path, 'wb') as file:
                 pickle.dump(data, file)
 
-    plots.PlotGaussianPreds(
+    plots.PlotParamPairComparison(
         np.mean(data['means'], axis=1),
         data['unseen'],
         labels=data['names'],

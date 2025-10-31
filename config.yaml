@@ -23,51 +23,87 @@ global-variables:
 main:
   # Variables for training the network
   training:
+    # Clears existing network states
+    overwrite: False
+    # Use mixup data augmentation
+    mixup: False
+    # Use Weights & Biases for experiment tracking
+    wandb: False
     # Number of epochs to train the network for
     epochs: 150
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 0
+    network-save: 'test'
     # File number to load the network state
-    network-load: 0
+    network-load: ''
+    # Number of channels in the input images
+    image-channels: 1
+    # Random seed for training
+    seed: 1
+    # CDM Effective Cross-Section
+    cdm-sigma: 1.0e-2
     # Learning rate for training the network
-    learning-rate: 1.0e-5
+    learning-rate: 1.0e-5  # For OneCycleLR
+#    learning-rate: 1.0e-4  # For ReduceLROnPlateau
     # Maximum learning rate for training the network if using OneCycleLR
     max-learning-rate: 1.0e-3
     # Validation dataset fraction
     validation-fraction: 0.2
     # File name for network model to load
-    network-name: *reduced_network
+    network-name: 'network_v10_test'
     # Network description
-    description: 'Mix Up - No CDM - BAHAMAS-0.3 Unknown - OneCycleLR'
+    description: 'Shear noiseless, BAHAMAS-0.3 noisy unknown'
+    # Level of output verbosity: 'epoch', 'full', 'plot', 'progress', None
+    verbose: 'progress'
+    # W&B group
+    wandb-group: 'shear'
     # Known simulations
     known:
-#      - 'bahamas_cdm'
-#      - 'bahamas_cdm_low'
-#      - 'bahamas_cdm_hi'
-      - 'bahamas_0.03_mix'
+      - 'bahamas_cdm'
+#      - 'bahamas_cdm_shear_real'
+      - 'bahamas_cdm_low'
+      - 'bahamas_cdm_hi'
+#      - 'bahamas_0.03_mix'
       - 'bahamas_0.1'
-      - 'bahamas_0.17_mix'
-#      - 'bahamas_0.3'
-      - 'bahamas_0.55_mix'
-#      - 'bahamas_dmo_1'
+#      - 'bahamas_0.1_shear_real'
+#      - 'bahamas_0.17_mix'
+      - 'bahamas_0.3'
+#      - 'bahamas_0.3_shear_real'
+#      - 'bahamas_0.55_mix'
       - 'bahamas_1'
+#      - 'bahamas_1_shear_real'
+#      - 'bahamas_dmo_1'
 #      - 'flamingo'
 #      - 'flamingo_low'
 #      - 'flamingo_hi'
 #      - 'bahamas_dmo_cdm'
-#      - 'darkskies_cdm'
-#      - 'darkskies_0.1'
-#      - 'darkskies_0.2'
+      - 'darkskies_cdm'
+#      - 'darkskies_0.05'
+      - 'darkskies_0.1'
+      - 'darkskies_0.2'
+#      - 'bahamas_cdm_shear'
+#      - 'bahamas_0.1_shear'
+#      - 'bahamas_0.3_shear'
+#      - 'bahamas_1_shear'
+#      - 'bahamas_cdm_cat'
+#      - 'bahamas_0.1_cat'
+#      - 'bahamas_0.3_cat'
+#      - 'bahamas_1_cat'
     # Unknown simulations
     unknown:
+#      - 'bahamas_cdm_shear_real'
 #      - 'bahamas_0.1'
-      - 'bahamas_0.3'
+#      - 'bahamas_0.1_shear_real'
+#      - 'bahamas_0.3'
+#      - 'bahamas_0.3_shear'
+#      - 'bahamas_0.3_shear_real'
+#      - 'bahamas_1_shear_real'
 #      - 'flamingo_low_test'
 #      - 'bahamas_dmo_0.1'
 #      - 'noise'
 #      - 'tng'
+#      - 'darkskies_0.07'
 #      - 'darkskies_0.1'
 #      - 'bahamas_cdm_low'
 #      - 'bahamas_cdm_hi'
@@ -103,7 +139,7 @@ batch-train:
   output:
     # Directory to save the results
     batch-train-dir: '../data/'
-# optimise.py and hyperparam_search.py config file
+# optimise.py config file
 optimise:
   # Variables for optimising the network
   optimisation:

@@ -2,9 +2,11 @@
 Main script for DARKSKIES Bayesian neural network
 """
 import os
+import random
 from typing import Any, cast
 
 import torch
+import wandb  # pylint: disable=wrong-import-order
 import numpy as np
 import pandas as pd
 import sciplots as plots
@@ -17,12 +19,22 @@ from netloader.networks import BaseNetwork
 from netloader.utils.utils import get_device, save_name
 from torch.utils.data import DataLoader
 from sklearn.decomposition import PCA
+from wandb import Artifact
 
-from src.utils.data import DarkDataset
-from src.utils import analysis, plot_config
-from src.utils.models import ConvNeXtCluster
-from src.utils.utils import open_config, ROOT
+from src.utils.pointnet2 import PointNet2
+from src.utils import analysis, plot_config, utils
 from src.utils.clustering import CompactClusterEncoder
+from src.utils.data import DarkDataset, DarkPointDataset
+from src.utils.models import ConvNeXtCluster, PointNet2Cluster
+
+
+def seed_worker(_: int) -> None:
+    """
+    Sets the random seed for data loader workers for reproducibility.
+    """
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> nets.BaseNetwork:
@@ -42,7 +54,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
         Constructed network
     """
     if isinstance(config, str):
-        _, config = open_config('main', config)
+        _, config = utils.open_config('main', config)
 
     # Load config parameters
     unknown: int
@@ -51,11 +63,11 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     learning_rate: float = config['training']['learning-rate']
     name: str = config['training']['network-name']
     description: str = config['training']['description']
-    networks_dir: str = str(os.path.join(ROOT, config['data']['network-configs-directory']))
-    states_dir: str = str(os.path.join(ROOT, config['output']['network-states-directory']))
-    device: torch.device = get_device()[1]
-    transform: transforms.BaseTransform
-    param_transform: transforms.BaseTransform
+    networks_dir: str = str(os.path.join(utils.ROOT, config['data']['network-configs-directory']))
+    states_dir: str = str(os.path.join(utils.ROOT, config['output']['network-states-directory']))
+    device: torch.device = get_device()[1] if True else torch.device('cpu')
+    transform: transforms.BaseTransform | None
+    param_transform: transforms.BaseTransform | None
     net: Network | nets.BaseNetwork
 
     # Initialise network
@@ -68,8 +80,27 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
         unknown = len(np.unique(dataset.low_dim[np.isin(dataset.extra['sims'], dataset.unknown)]))
         transform = transforms.MultiTransform(
             transforms.NumpyTensor(),
-            transforms.Index(0, (-1, *dataset.high_dim.shape[2:]), slice(2)),
+            transforms.Index(
+                dim=0,
+                in_shape=(-1, *dataset.high_dim.shape[2:]),
+                slice_=slice(config['training']['image-channels']),
+            ),
         )
+        # PointNet
+        # data = np.concat(dataset.high_dim)
+        # transform = transforms.MultiTransform(
+        #     transforms.NumpyTensor(),
+        #     transforms.Normalise(
+        #         offset=np.concat((
+        #             np.mean(data[:, :dataset.num]).repeat(dataset.num),
+        #             np.mean(data[:, dataset.num:]).repeat(data.shape[-1] - dataset.num),
+        #         )),
+        #         scale=np.concat((
+        #             np.std(data[:, :dataset.num]).repeat(dataset.num),
+        #             np.std(data[:, dataset.num:]).repeat(data.shape[-1] - dataset.num),
+        #         )),
+        #     )
+        # )
         param_transform = transforms.MultiTransform(
             transforms.NumpyTensor(),
             transforms.Log(),
@@ -93,7 +124,16 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             [len(np.unique(dataset.low_dim))],
             # [len(np.unique(dataset.labels)) - unknown],  # Unknown no label
             # [1],  # Encoder
+            root=utils.ROOT,
         )
+        # net = PointNet2(
+        #     [
+        #         list(dataset[0][2].get(0, True).shape),
+        #         list(dataset[0][2].get(1, True).shape),
+        #     ],
+        #     [1],
+        #     # latent_dim=7,
+        # )
 
         # Architecture initialisation
         # net = nets.Encoder(
@@ -102,7 +142,7 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
         #     net,
         #     learning_rate=learning_rate,
         #     description=description,
-        #     verbose='progress',
+        #     verbose=config['training']['verbose'],
         #     transform=param_transform,
         #     in_transform=transform,
         # )
@@ -112,12 +152,12 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             torch.unique(param_transform(dataset.low_dim)),
             # torch.unique(param_transform(dataset.labels))[unknown:],  # Unknown no label
             net,
-            overwrite=False,
+            overwrite=config['training']['overwrite'],
             unknown=unknown,
             learning_rate=learning_rate,
             method='median',
             description=description,
-            verbose='plot',
+            verbose=config['training']['verbose'],
             transform=param_transform,
             in_transform=transform,
             scheduler_kwargs={
@@ -133,9 +173,12 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
     # net.scheduler = net.set_scheduler(net.optimiser, factor=0.5, min_lr=1e-7)
 
     # Transform datasets
-    transform[1]._shape = (-1, *dataset.high_dim.shape[2:])
-    dataset.high_dim = transform(dataset.high_dim)
-    dataset.low_dim = param_transform(dataset.low_dim)
+    dataset.high_dim = transform(dataset.high_dim) if transform else dataset.high_dim
+    dataset.low_dim = param_transform(dataset.low_dim) if param_transform else dataset.low_dim
+
+    # PointNet
+    # for i, datum in enumerate(dataset.high_dim):
+    #     dataset.high_dim[i] = transform(datum)
     return net.to(device)
 
 
@@ -162,13 +205,14 @@ def init(
         Train & validation dataloaders, neural network and dataset
     """
     if isinstance(config, str):
-        _, config = open_config('main', config)
+        _, config = utils.open_config('main', config)
 
     # Load config parameters
     batch_size: int = config['training']['batch-size']
     val_frac: int = config['training']['validation-fraction']
-    data_dir: str = str(os.path.join(ROOT, config['data']['data-dir']))
+    data_dir: str = str(os.path.join(utils.ROOT, config['data']['data-dir']))
     loaders: tuple[DataLoader, DataLoader]
+    gen: torch.Generator
     net: BaseNetwork
     dataset: DarkDataset
 
@@ -176,9 +220,25 @@ def init(
         unknown = []
 
     # Fetch dataset & network
-    dataset = DarkDataset(data_dir, known, unknown)
+    dataset = DarkDataset(
+        data_dir,
+        known,
+        unknown,
+        mix=config['training']['mixup'],
+        cdm_sigma=config['training']['cdm-sigma'],
+    )
+    # dataset = DarkPointDataset(
+    #     data_dir,
+    #     known,
+    #     unknown,
+    #     cdm_sigma=config['training']['cdm-sigma'],
+    # )
     dataset.low_dim = dataset.unique_labels(dataset.low_dim, dataset.extra['sims'])
     net = net_init(dataset, config)
+    gen = torch.Generator()
+
+    if config['training']['seed'] >= 0:
+        gen.manual_seed(config['training']['seed'])
 
     # Initialise data loaders
     loaders = cast(tuple[DataLoader, DataLoader], loader_init(
@@ -186,6 +246,9 @@ def init(
         batch_size=batch_size,
         ratios=(1 - val_frac, val_frac) if net.idxs is None else (1,),
         idxs=None if net.idxs is None else dataset.idxs[np.isin(dataset.extra['ids'], net.idxs)],
+        generator=gen,
+        worker_init_fn=seed_worker if config['training']['seed'] >= 0 else None,
+        collate_fn=dataset.collate if hasattr(dataset, 'collate') else None,
     ))
     net.idxs = dataset.extra['ids'].iloc[loaders[0].dataset.indices] \
         if net.idxs is None else net.idxs
@@ -210,12 +273,24 @@ def main(config_path: str = '../config.yaml'):
     labels: list[str]
     unknown: list[str]
     # plot_colours: list[str] = plot_config.bahamas_agn + plot_config.bahamas
+    # plot_colours: list[str] = [
+    #     plot_config.BAHAMAS[2],
+    #     *plot_config.BAHAMAS[:2],
+    #     plot_config.BAHAMAS[3],
+    # ]
     plot_colours: list[str] = [
-        *plot_config.BAHAMAS[2],
-        plot_config.FLAMINGO[0],
-        plot_config.BAHAMAS[1],
-        *plot_config.FLAMINGO[1:],
-        plot_config.BAHAMAS[-1],
+        *plot_config.DARKSKIES[:3],
+        plot_config.BAHAMAS[2],
+        plot_config.DARKSKIES[3],
+        *plot_config.BAHAMAS[:2],
+        plot_config.BAHAMAS[3],
+        # plot_config.DARKSKIES[0],
+        # *plot_config.BAHAMAS_AGN,
+        # plot_config.BAHAMAS[0],
+        # plot_config.DARKSKIES[1],
+        # plot_config.BAHAMAS[1],
+        # plot_config.DARKSKIES[2],
+        # *plot_config.BAHAMAS[2:],
     ]
     param_names: list[str] = [
         r'$\sigma_{\rm DM}$',
@@ -227,18 +302,20 @@ def main(config_path: str = '../config.yaml'):
     ]
     loaders: tuple[DataLoader, DataLoader]
     data: dict[str, ndarray]
-    config: dict[str, Any] = open_config('main', config_path)[1]
+    config: dict[str, Any] = utils.open_config('main', config_path)[1]
+    wandb_config: dict[str, Any]
     meds: ndarray
     stes: ndarray
     means: ndarray
     pca_transform: ndarray
     pca: PCA
+    artifact: Artifact
     net: nets.BaseNetwork
     dataset: DarkDataset
 
     net_epochs = config['training']['epochs']
-    plots_dir = str(os.path.join(ROOT, config['output']['plots-directory']))
-    states_dir = str(os.path.join(ROOT, config['output']['network-states-directory']))
+    plots_dir = str(os.path.join(utils.ROOT, config['output']['plots-directory']))
+    states_dir = str(os.path.join(utils.ROOT, config['output']['network-states-directory']))
     known = config['training']['known']
     unknown = config['training']['unknown']
 
@@ -250,15 +327,49 @@ def main(config_path: str = '../config.yaml'):
     if not os.path.exists(states_dir):
         os.makedirs(states_dir)
 
+    if config['training']['seed'] >= 0:
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+        np.random.seed(config['training']['seed'])
+        torch.manual_seed(config['training']['seed'])
+
     # Initialise network
-    torch.serialization.add_safe_globals([CompactClusterEncoder])
     loaders, net, dataset = init(known, config, unknown=unknown)
+    # net.class_loss = 1
+    # net.cluster_loss = 1
+    # net.distance_loss = 0.5
     print(net)
+
+    wandb_config = utils.wandb_config(
+        net_epochs,
+        net.save_path.split('/')[-1].replace('.pth', ''),
+        config['training']['wandb-group'],
+        config['training'],
+    )
+
+    if config['training']['wandb'] and net.save_path and 0 < net.get_epochs() < net_epochs:
+        wandb.init(**wandb_config, resume='allow')
+    elif config['training']['wandb'] and net.save_path and net.get_epochs() == 0:
+        try:
+            net.run = wandb.init(
+                **wandb_config,
+                resume_from=f"{net.save_path.split('/')[-1].replace('.pth', '')}?_step=0",
+            )
+        except wandb.errors.CommError:
+            net.run = wandb.init(**wandb_config)
 
     # Train network
     net.training(net_epochs, loaders)
 
+    if net.run and not wandb.Api().run(
+            f'{net.run.entity}/{net.run.project}/{net.run.name}').logged_artifacts():
+        artifact = wandb.Artifact(f'{net.__class__.__name__}-{net.net.name}', type='model')
+        artifact.add_file(net.save_path)
+        net.run.log_artifact(artifact)
+        net.run.finish(exit_code=0)
+
     # Generate predictions
+    dataset._mix = False
     data = net.predict(loaders[1])
     data['targets'] = dataset.unique_labels(
         data['targets'],
@@ -272,7 +383,11 @@ def main(config_path: str = '../config.yaml'):
 
     # Plot performance
     plots.PlotPerformance(
-        np.array(net.losses),
+        np.array(net.losses) if isinstance(net.losses[0][0], float) else
+        np.array([
+            utils.list_dict_convert(net.losses[0])['total'],
+            utils.list_dict_convert(net.losses[1])['total'],
+        ]),
         x_label='Epoch',
         y_label='Loss',
         labels=['Train', 'Validation'],
@@ -405,7 +520,7 @@ def main(config_path: str = '../config.yaml'):
         rows=len(labels),
         loc='upper right',
     ).savefig(plots_dir, name='clusters')
-    # plots.PlotConfusion(labels, data['preds'], data['targets']).savefig(plots_dir)
+    plots.PlotConfusion(labels, data['preds'], data['targets'], minor=20).savefig(plots_dir)
 
     # Plot saliencies
     # saliency = net.saliency(loaders[1], net)

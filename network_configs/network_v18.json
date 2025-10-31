@@ -1,0 +1,128 @@
+{
+  "net": {
+    "checkpoints": 1,
+    "description": "Same as v16 but with no adaptive pool and no final activation",
+    "Linear": {
+      "dropout": 0.1
+    },
+    "Composite": {
+      "name": "inception",
+      "config_dir": "../network_configs/composite_layers/",
+      "defaults": {
+        "Conv": {
+          "activation": "GELU"
+        }
+      }
+    }
+  },
+  "layers": [
+    {
+      "type": "Composite",
+      "channels": 32
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 64
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 128
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 128
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 256
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Pool"
+    },
+    {
+      "type": "Composite",
+      "channels": 512
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Composite",
+      "channels": 512
+    },
+    {
+      "type": "LayerNorm",
+      "dims": 1
+    },
+    {
+      "type": "Reshape",
+      "shape": [-1]
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 256
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 7,
+      "dropout": 0
+    },
+    {
+      "type": "Checkpoint"
+    },
+    {
+      "type": "Linear",
+      "features": 64
+    },
+    {
+      "type": "Linear",
+      "factor": 1,
+      "dropout": 0,
+      "activation": null
+    }
+  ]
+}

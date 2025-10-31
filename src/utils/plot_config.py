@@ -18,3 +18,4 @@ BAHAMAS_AGN: list[str] = ['#5D4EF5', '#F54EDF']  # Purples
 FLAMINGO: list[str] = ['#FABD00', '#FA7700', '#FA2100']  # Oranges
 BAHAMAS_DMO: list[str] = ['#00FA8F', '#01FB3D', '#89FA00']  # Greens
 BAHAMAS: list[str] = ['#0008E0', '#004FE0', '#0097E0', '#00DCE0']  # Blues
+DARKSKIES: list[str] = ['#8E00E0', '#D100E0', '#E0008F', '#E0004F', '#E0000A']  # Purples

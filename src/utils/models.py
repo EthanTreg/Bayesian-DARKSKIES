@@ -3,9 +3,12 @@ ConvNeXtCluster model with clustering capabilities.
 """
 from typing import Any
 
-import numpy as np
 from netloader import layers
+from netloader.utils import Shapes
 from netloader.models import convnext
+from netloader.layers.base import BaseLayer
+
+from src.utils.pointnet2 import PointNet2
 
 
 class ConvNeXtCluster(convnext.ConvNeXtTiny):
@@ -66,66 +69,77 @@ class ConvNeXtCluster(convnext.ConvNeXtTiny):
         self._latent_dim = state['latent_dim'] if 'latent_dim' in state else 7
         super().__setstate__(state)
 
-    def _build_net(self, out_shape: list[int]) -> None:
+    def _head(self, out_shape: list[int], **kwargs: Any) -> list[BaseLayer]:
         """
-        Constructs the ConvNeXt network layers
+        Head of ConvNeXt for adapting the learned features into the desired output.
 
         Parameters
         ----------
         out_shape : list[int]
             shape of the output tensor, excluding batch size
+
+        **kwargs
+            Global network parameters
+
+        Returns
+        -------
+        list[BaseLayer]
+            Layers used in the head
         """
-        assert isinstance(self.shapes, list)
-        assert isinstance(self.check_shapes, list)
-        drop_paths: list[float]
-        depths: list[int] = np.cumsum(self._depths).tolist()
-        kwargs: dict[str, Any] = {'idx': 0, 'check_shapes': []}
-        drop_paths = np.linspace(0, self._max_drop_path, depths[-1]).tolist()
-
-        # Stem
-        self.net.append(layers.Conv(
-            out_shape,
-            self.shapes,
-            filters=self._dims[0],
-            kernel=4,
-            stride=4,
-            norm='layer',
-            **kwargs,
-        ))
-
-        # Main body
-        for dim, in_depth, out_depth in zip(self._dims, [0, *depths], depths):
-            # Downscaling
-            self.net.extend([
-                layers.LayerNorm(dims=1, shapes=self.shapes, **kwargs),
-                layers.Conv(
-                    out_shape,
-                    self.shapes,
-                    filters=dim,
-                    kernel=2,
-                    stride=2,
-                    **kwargs,
-                ),
-            ] if dim != self._dims[0] else [])
-
-            # ConvNeXt blocks
-            self.net.extend([
-                *[convnext.ConvNeXtBlock(
-                    out_shape,
-                    self.shapes,
-                    drop_path,
-                    layer_scale=self._layer_scale,
-                ) for drop_path in drop_paths[in_depth:out_depth]],
-            ])
-
-        # Head
-        self.net.extend([
+        return [
             layers.AdaptivePool(1, self.shapes, **kwargs),
             layers.Reshape([-1], shapes=self.shapes, **kwargs),
             layers.LayerNorm(dims=1, shapes=self.shapes, **kwargs),
             layers.Linear(out_shape, self.shapes, features=self._latent_dim, **kwargs),
             layers.OrderedBottleneck(self.shapes, min_size=1, **kwargs),
             layers.Checkpoint(self.shapes, **kwargs),
-            layers.Activation('GELU', shapes=self.shapes, **kwargs),
-            layers.Linear(out_shape, self.shapes, factor=1, **kwargs),
-        ])
+            layers.Linear(out_shape, self.shapes, factor=1, activation=None, **kwargs),
+        ]
+
+
+class PointNet2Cluster(PointNet2):
+    """
+    A PointNet2 network with clustering capabilities.
+    Inherits from PointNet2 and adds clustering functionality.
+    """
+    def __init__(
+            self,
+            in_shape: list[int],
+            out_shape: list[int],
+            latent_dim: int = 7) -> None:
+        """
+        Parameters
+        ----------
+        in_shape : list[int] | list[list[int]] | tuple[int, ...]
+            Shape of the input tensor(s), excluding batch size
+        out_shape : list[int]
+            shape of the output tensor, excluding batch size
+        latent_dim : int, default = 7
+            Dimensionality of the latent space
+        """
+        self._latent_dim: int = latent_dim
+        super().__init__(in_shape, out_shape)
+
+    def _head(self, net_out: list[int]) -> list[BaseLayer]:
+        """
+        Constructs the head of the PointNet2 network.
+
+        Parameters
+        ----------
+        net_out : list[int]
+            Shape of the output tensor, excluding batch size
+
+        Returns
+        -------
+        list[BaseLayer]
+            Head of the PointNet2 network
+        """
+        return [
+            layers.AdaptivePool(1, self.shapes),
+            layers.Reshape([-1], shapes=self.shapes),
+            layers.LayerNorm(dims=1, shapes=self.shapes),
+            layers.Linear(net_out, self.shapes, features=self._latent_dim),
+            layers.OrderedBottleneck(self.shapes, min_size=1),
+            layers.Checkpoint(self.shapes, Shapes()),
+            layers.Linear(net_out, self.shapes, factor=1, activation=None),
+        ]

@@ -83,6 +83,7 @@ def _summary(data: dict[str, Any]) -> dict[str, Any]:
 def _batch_train_summary(
         num: int,
         dir_: str,
+        prefix: str,
         idx: int | None = None) -> dict[str, list[Any]]:
     """
     Generates a summary for a single file generated from batch_train.py
@@ -93,6 +94,8 @@ def _batch_train_summary(
         Batch train file number
     dir_ : str
         Path to the directory for the batch training data
+    prefix : str
+        Prefix for the file name
     idx : int | None, default = None
         Which run to get the results for, if None, all runs will be used
 
@@ -108,7 +111,7 @@ def _batch_train_summary(
     datum: dict[str, Any]
     val: Any
 
-    with open(os.path.join(dir_, f'batch_train_{num}.pkl'), 'rb') as file:
+    with open(os.path.join(dir_, f'{prefix}_{num}.pkl'), 'rb') as file:
         data = pickle.load(file)
 
     # Loop through all runs in the batch training file
@@ -163,6 +166,7 @@ def _red_chi_acc(
 def batch_train_summary(
         num: int | range,
         dir_: str,
+        prefix: str,
         idx: int | None = None) -> dict[str, list[list[Any]] | ndarray]:
     """
     Calculate a summary for data generated from batch_train.py
@@ -173,6 +177,8 @@ def batch_train_summary(
         Batch train number or range of numbers
     dir_ : str
         Path to the directory for the batch training data
+    prefix : str
+        Prefix for the file name
     idx : int | None, default = None
         Which run to get the results for, if None, all runs will be used
 
@@ -192,7 +198,7 @@ def batch_train_summary(
     num = range(num, num + 1) if isinstance(num, int) else num
 
     for i in num:
-        data = _batch_train_summary(i, dir_, idx)
+        data = _batch_train_summary(i, dir_, prefix, idx)
 
         for key, val in data.items():
             if isinstance(val, ndarray):
@@ -284,7 +290,7 @@ def distributions(data: ndarray, targets: ndarray) -> ndarray:
     shape: tuple[int, ...]
     idxs: ndarray
     new_data: ndarray = np.empty(
-        [*data.shape[:-1], len(np.unique(targets[0, 0]))],
+        [*data.shape[:-1], len(np.unique(targets.reshape(-1, targets.shape[-1])[0]))],
         dtype=object,
     )
 
@@ -335,23 +341,21 @@ def gen_predictions(
     loader: DataLoader
 
     for shape in np.ndindex(predictions.shape):
-        # Create data loader only for one network in repeats
-        if shape[-1] == 0:
-            nets[*shape].transforms['inputs'][1]._shape = high_dim.shape[1:]
-            dataset.high_dim = nets[*shape].transforms['inputs'](high_dim.copy())
-            dataset.low_dim = nets[*shape].transforms['targets'](low_dim.copy())
+        # Create data loader
+        dataset.high_dim = nets[*shape].transforms['inputs'](high_dim.copy())
+        dataset.low_dim = nets[*shape].transforms['targets'](low_dim.copy())
 
-            loaders = loader_init(
-                dataset,
-                batch_size=batch_size,
-                ratios=(1 - val_frac, val_frac) if idxs is None and nets[*shape].idxs is None else
-                (1,),
-                idxs=dataset.idxs[np.isin(
-                    dataset.extra['ids'],
-                    nets[*shape].idxs,
-                )] if idxs is None and nets[*shape].idxs is not None else idxs,
-            )
-            print(f'Loader Dataset Lengths: {[len(loader.dataset) for loader in loaders]}')
+        loaders = loader_init(
+            dataset,
+            batch_size=batch_size,
+            ratios=(1 - val_frac, val_frac) if idxs is None and nets[*shape].idxs is None else
+            (1,),
+            idxs=dataset.idxs[np.isin(
+                dataset.extra['ids'],
+                nets[*shape].idxs,
+            )] if idxs is None and nets[*shape].idxs is not None else idxs,
+        )
+        print(f'Loader Dataset Lengths: {[len(loader.dataset) for loader in loaders]}')
 
         # Generate predictions
         if predictions[*shape] is None:
@@ -667,11 +671,25 @@ def probs_distributions(
 
     # Generate distributions for each set of predictions & product of repeats of distributions
     data_pred['targets'] = data_pred['targets'].squeeze(axis=-1)
-    dists = distributions(
-        data_pred['latent'][..., 0] if 'latent' in data_pred else
-        data_pred['preds'].squeeze(axis=-1),
-        dataset.low_dim[data_pred['ids'].astype(int)].squeeze(axis=-1),
-    )
+
+    if data_pred['latent'].dtype.type == np.object_:
+        dists = np.empty(
+            (*data_pred['latent'].shape, len(np.unique(dataset.low_dim))),
+            dtype=object,
+        )
+
+        for shape in np.ndindex(data_pred['latent'].shape):
+            dists[*shape] = distributions(
+                data_pred['latent'][*shape][:, 0],
+                dataset.low_dim[data_pred['ids'][*shape].astype(int)].squeeze(axis=-1),
+            )
+    else:
+        dists = distributions(
+            data_pred['latent'][..., 0] if 'latent' in data_pred else
+            data_pred['preds'].squeeze(axis=-1),
+            dataset.low_dim[data_pred['ids'].astype(int)].squeeze(axis=-1),
+        )
+
     grids, new_distributions = mult_distributions(dists, bins=bins)
 
     # Untransform grids
@@ -718,7 +736,7 @@ def profiles(
     Returns
     -------
     tuple[(M) ndarray, (L) ndarray, (M,L) ndarray, (M,L) ndarray, (M,L) ndarray]
-        M unique simulation names, radii, and total mass, X-ray fraction, and stellar fraction
+        M unique simulation names, _radii, and total mass, X-ray fraction, and stellar fraction
         profiles with L bins which is equal to int(min(W,H)/4-0.5)
     """
     i: int

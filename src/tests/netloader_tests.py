@@ -4,15 +4,16 @@ Functions to run tests on neural networks using the PyTorch-Network-Loader packa
 import os
 import json
 import pickle
+from warnings import warn
 from dataclasses import dataclass
 from typing import Callable, Any, TextIO
 
 import numpy as np
 import pandas as pd
-from torch.utils.data import DataLoader
+from netloader.data import loader_init
 from netloader.networks import BaseNetwork
 from netloader.utils.utils import save_name
-from netloader.data import loader_init, BaseDataset
+from torch.utils.data import DataLoader
 
 from src.main import net_init
 from src.utils.data import DarkDataset
@@ -29,35 +30,55 @@ class TestConfig:
     ----------
     name : str
         Name of the test
+    net_name : str
+        Name of the network configuration file to use
     description : str
         Description of the test
     dataset_args : dict[str, Any]
         Keyword arguments for the dataset initialization
-    net_name : str
-        Name of the network configuration file to use
-    network_mod_params : dict[str, Any] | None, default = None
-        Keyword arguments for the network modification function
     hyperparams : dict[str, Any] | None, default = None
         Optional hyperparameters for the test
+    pre_train_fn_params : dict[str, Any] | None, default = None
+        Keyword arguments for the custom function before network training
+    post_train_fn_params : dict[str, Any] | None, default = None
+        Keyword arguments for the custom function after network training
+    network_mod_params : dict[str, Any] | None, default = None
+        Keyword arguments for the network modification function
     network_mod_fn : Callable[[dict[str, dict[str, Any] | list[dict[str, Any]]], Any], None] | None, default = None
         Function to modify the network configuration before training
-    custom_fn : Callable[[Any], None] | None, default = None
+    pre_train_fn : Callable[[Any], None] | None, default = None
+        Function to run custom logic before training, receives locals() as argument
+    post_train_fn : Callable[[Any], None] | None, default = None
         Function to run custom logic after training, receives locals() as argument
     """
+    # pylint: enable=line-too-long
     name: str
+    net_name: str
     description: str
     dataset_args: dict[str, Any]
-    net_name: str
-    network_mod_params: dict[str, Any] | None = None
     hyperparams: dict[str, Any] | None = None
+    custom_fn_params: dict[str, Any] | None = None
+    network_mod_params: dict[str, Any] | None = None
+    pre_train_fn_params: dict[str, Any] | None = None
+    post_train_fn_params: dict[str, Any] | None = None
     network_mod_fn: Callable[
                         [dict[str, dict[str, Any] | list[dict[str, Any]]], Any],
                         None,
                     ] | None = None
-    custom_fn: Callable[[Any], None] | None = None
+    custom_fn: Callable[[...], None] | None = None
+    pre_train_fn: Callable[[...], None] | None = None
+    post_train_fn: Callable[[...], None] | None = None
+
+    def __post_init__(self) -> None:
+        if self.custom_fn is not None:
+            warn(
+                'custom_fn is deprecated, use pre_train_fn and post_train_fn instead',
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
 
-def mod_network(nets_dir: str, test: TestConfig) -> str:
+def mod_network(nets_dir: str, test: TestConfig, suffix: str = 'temp') -> str:
     """
     Modify the network JSON file according to the test configuration and save as a temp file.
 
@@ -67,6 +88,8 @@ def mod_network(nets_dir: str, test: TestConfig) -> str:
         Path to the network configurations directory
     test : TestConfig
         The test configuration containing the network modification parameters
+    suffix : str, default = 'temp'
+        Suffix to append to the new temporary file name, if empty, 'temp' will be used
 
     Returns
     -------
@@ -76,6 +99,7 @@ def mod_network(nets_dir: str, test: TestConfig) -> str:
     new_name: str
     config: dict[str, dict[str, Any] | list[dict[str, Any]]]
     file: TextIO
+    suffix = suffix or 'temp'
 
     if '.json' in test.net_name:
         test.net_name.replace('.json', '')
@@ -83,7 +107,7 @@ def mod_network(nets_dir: str, test: TestConfig) -> str:
     if not test.network_mod_fn:
         return test.net_name
 
-    new_name = test.net_name + '_temp'
+    new_name = f'{test.net_name}_{suffix}'
 
     with open(os.path.join(ROOT, nets_dir, test.net_name) + '.json', 'r', encoding='utf-8') as file:
         config = json.load(file)
@@ -92,8 +116,45 @@ def mod_network(nets_dir: str, test: TestConfig) -> str:
 
     with open(os.path.join(ROOT, nets_dir, new_name) + '.json', 'w', encoding='utf-8') as file:
         json.dump(config, file)
-
     return new_name
+
+
+def gen_indexes(data: pd.DataFrame, excluded_columns: list[str] | None = None) -> None:
+    """
+    Generates unique indexes for a data frame.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Data frame to generate indexes for
+    excluded_columns : list[str] | None, default = None
+        Columns to exclude from index generation
+    """
+    key: str
+    idxs: np.ndarray
+    vals: np.ndarray
+
+    if len(data) < 2:
+        return
+
+    # Add index columns for columns with unique values
+    for key in data.keys():
+        if key in (excluded_columns or []):
+            continue
+
+        try:
+            idxs = pd.factorize(data[key])[0]
+        except TypeError:
+            idxs = pd.factorize(data[key].apply(tuple))[0]
+
+        if 1 < len(np.unique(idxs)) < len(data):
+            data[f'{key}_idx'] = idxs
+            data.set_index(f'{key}_idx', inplace=True, append=True)
+
+    if isinstance(data.index, pd.MultiIndex):
+        vals = np.array(data.index.values.tolist()).swapaxes(0, 1)
+        idxs = np.sort(np.unique(vals, axis=0, return_index=True)[1])
+        data.index = pd.MultiIndex.from_arrays(vals[idxs], names=np.array(data.index.names)[idxs])
 
 
 def run_tests(
@@ -118,22 +179,17 @@ def run_tests(
     config : str | dict[str, Any], default = '../config.yaml'
         Configuration file path or dictionary
     """
+    i: int
     val_frac: float
     nets_dir: str
     net_name: str
     loaders: tuple[DataLoader, ...]
+    excluded_columns: list[str] = ['net_path', 'description', 'losses']
+    data: dict[str, Any] = {}
     dataset_args: dict[str, Any] = {}
-    results: pd.DataFrame = pd.DataFrame([], columns=[
-        'net_path',
-        'description',
-        'losses',
-        'test_config',
-        *(tests[0].dataset_args if tests[0].dataset_args else []),
-        *(tests[0].network_mod_params if tests[0].network_mod_params else []),
-        *(tests[0].hyperparams if tests[0].hyperparams else []),
-    ])
+    results: pd.DataFrame = pd.DataFrame([])
     net: BaseNetwork
-    dataset: BaseDataset
+    dataset: DarkDataset
     test: TestConfig
 
     if isinstance(config, str):
@@ -141,17 +197,17 @@ def run_tests(
 
     nets_dir = str(os.path.join(ROOT, config['data']['network-configs-directory']))
 
-    for test in tests:
-        print(f'Running test: {test.description}', flush=True)
+    for i, test in enumerate(tests):
+        print(f'\nRunning test ({i + 1}/{len(tests)}): {test.description}', flush=True)
 
         # 1. Prepare network JSON
-        net_name = mod_network(nets_dir, test)
+        net_name = mod_network(nets_dir, test, suffix=f'temp_{save}')
 
         # 2. Prepare config
         config['training'].update(test.hyperparams or {})
         config['training']['network-name'] = net_name
-        config['training']['network-save'] = f'{save}.{test.name}' if save else 0
-        config['training']['network-load'] = f'{load}.{test.name}'
+        config['training']['network-save'] = f'{test.name}' if save else 0
+        config['training']['network-load'] = f'{test.name}'
         config['training']['description'] = test.description
         val_frac = config['training']['validation-fraction']
 
@@ -165,6 +221,7 @@ def run_tests(
         # 3. Prepare or reuse dataset
         if not test.dataset_args == dataset_args:
             dataset = DarkDataset(**test.dataset_args)
+            dataset.low_dim = dataset.unique_labels(dataset.low_dim, dataset.extra['sims'])
             dataset_args = test.dataset_args
 
         # 4. Continue as before, using the cached dataset
@@ -183,14 +240,22 @@ def run_tests(
 
         # 4. Custom user logic (optional)
         if test.custom_fn:
-            test.custom_fn(locals())
+            test.custom_fn(locals(), **test.custom_fn_params or {})
+
+        if test.pre_train_fn:
+            test.pre_train_fn(locals(), **test.pre_train_fn_params or {})
 
         # 5. Train and evaluate
-        net.training(config['training']['epochs'], loaders)
-        net.save()
+        if net.get_epochs() < config['training']['epochs']:
+            net.training(config['training']['epochs'], loaders)
+            net.save()
+
+        if test.post_train_fn:
+            test.post_train_fn(locals(), **test.post_train_fn_params or {})
+
         dataset.high_dim = net.transforms['inputs'](dataset.high_dim, back=True)
         dataset.low_dim = net.transforms['targets'](dataset.low_dim, back=True)
-        results = pd.concat((results, pd.DataFrame([{
+        results = pd.concat((None if results.empty else results, pd.DataFrame([{
             'net_path': net.save_path,
             'description': test.description,
             'losses': np.array(net.losses),
@@ -199,14 +264,17 @@ def run_tests(
             **(test.dataset_args or {}),
             **(test.hyperparams or {}),
             **(test.network_mod_params or {}),
-        }])))
+            **(test.custom_fn_params or {}),
+            **(test.pre_train_fn_params or {}),
+            **(test.post_train_fn_params or {}),
+            **data,
+        }])), ignore_index=True)
+        gen_indexes(results, excluded_columns=excluded_columns)
 
         if test.network_mod_fn:
             os.remove(os.path.join(nets_dir, net_name) + '.json')
 
-        if not save:
-            continue
-
-        # 6. Save results
+    # 6. Save results
+    if save:
         with open(os.path.join(ROOT, results_path), 'wb') as file:
             pickle.dump(results, file)
