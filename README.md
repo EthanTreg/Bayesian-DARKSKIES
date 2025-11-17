@@ -9,7 +9,7 @@ We apply this method to the BAHAMAS-SIDM and DARKSKIES simulations and demonstra
 self-interaction cross-section when the test data lies within the training domain and reliable rejection of foreign
 datasets, offering a blueprint for robust machine learning for scientific inference.
 
-The research paper can be found on [Astronomy & Astrophysics](TEMP) or the [arXiv](TEMP).
+The research paper can be found on [Astronomy & Astrophysics](https://arxiv.org/abs/2511.09660) (in-review) or the [arXiv](https://arxiv.org/abs/2511.09660).
 
 ![Diagram showing the encoder and decoder that make up the autoencoder](./Semi-Supervised_Clustering.png)
 
@@ -55,6 +55,10 @@ details on how to use the framework.
    train and validation data loaders.
    1. For further training, you can use `net.training((train_loader, val_loader), epochs=epochs)`.
    2. For predictions, you can use `net.predict(val_loader)` to get the predictions for the validation set.
+
+See `jupyter_notebooks`&rarr;`compact_clustering_example.ipynb` for an example of using the code with the simulations
+used in the paper.  
+Alternatively, you can look at `src`&rarr;`main.py` for the full script to train the compact clustering.
 
 
 # System Specifications
