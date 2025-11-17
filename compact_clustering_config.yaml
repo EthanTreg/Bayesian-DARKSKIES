@@ -1,0 +1,85 @@
+# Configuration file for all scripts
+# All file paths are relative to the parent script directory, unless otherwise stated
+---
+global-variables:
+  network-variables:
+    # Path to the configuration files for the networks
+    - &network_configs_directory '../network_configs/'
+    # File name for the network model to load
+    - &network 'network_v8'
+    - &reduced_network 'network_v10'
+  data-variables:
+    # Path to the images with lensing and X-ray maps and parameters
+    - &data_dir '../data/'
+  output-variables:
+    # Directory to save network training states
+    - &network_states_directory '../model_states/'
+    - &plots-directory '../plots/'
+
+# main.py config file
+main:
+  # Variables for training the network
+  training:
+    # Clears existing network states
+    overwrite: False
+    # Use mixup data augmentation
+    mixup: False
+    # If all CDM simulations should have a unique class label or the same
+    unique-cdm: False
+    # Number of epochs to train the network for
+    epochs: 50
+    # Number of inputs to process between network weight updates
+    batch-size: 120
+    # File number to save the network progres
+    network-save: 'example_1'
+    # File number to load the network state
+    network-load: ''
+    # Number of channels in the input images
+    image-channels: 2
+    # Random seed for training
+    seed: -1
+    # CDM Effective Cross-Section
+    cdm-sigma: 1.0e-2
+    # Learning rate for training the network
+    learning-rate: 1.0e-4
+    # Validation dataset fraction
+    validation-fraction: 0.2
+    # Weights for classification loss
+    classification-weight: 1
+    # Weight for compact clustering with label propagation loss
+    compact-clustering-weight: 2.2
+    # Weight for distance-based regression loss
+    distance-weight: 1
+    # File name for network model to load
+    network-name: *reduced_network
+    # Network description
+    description: 'Compact Clustering Example'
+    # Level of output verbosity: 'epoch', 'full', 'plot', 'progress', None
+    verbose: 'epoch'
+    # Learning rate scheduler to use: 'ReduceLROnPlateau', 'OneCycleLR'
+    scheduler: 'ReduceLROnPlateau'
+    # Known simulations
+    known:
+      - 'bahamas_cdm'
+      - 'bahamas_cdm_low'
+      - 'bahamas_cdm_hi'
+      - 'bahamas_0.1'
+      - 'bahamas_0.3'
+      - 'bahamas_1'
+      - 'darkskies_cdm'
+      - 'darkskies_0.2'
+    # Unknown simulations
+    unknown:
+      - 'darkskies_0.1'
+  # File location for different datasets
+  data:
+    # Path to the list containing the images and parameters
+    data-dir: *data_dir
+    # Path to the configuration files for the encoder and decoder
+    network-configs-directory: *network_configs_directory
+  # Directory locations for the different outputs
+  output:
+    # Directory to save network training states
+    network-states-directory: *network_states_directory
+    # Directory to save plots
+    plots-directory: *plots-directory

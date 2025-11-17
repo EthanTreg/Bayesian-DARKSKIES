@@ -71,6 +71,7 @@ def main(config_path: str = '../config.yaml'):
     unknown: list[list[str]]
     loaders: tuple[DataLoader, DataLoader]
     config: dict[str, Any]
+    run_config: dict[str, Any]
     batch_config: dict[str, Any]
     results: dict[int, dict[str, str | list[ndarray] | ndarray] | BaseNetwork] = {}
     meds: ndarray
@@ -83,10 +84,13 @@ def main(config_path: str = '../config.yaml'):
 
     _, batch_config = open_config('batch-train', config_path)
     _, config = open_config('main', config_path)
-    _, batch_config['training'] = open_config(
-        'training',
+    _, run_config = open_config(
+        '',
         str(os.path.join(batch_config['data']['config-dir'], batch_config['data']['config'])),
     )
+
+    for key, value in run_config.items():
+        batch_config[key] = value
 
     for key, value in batch_config.items():
         config[key] |= value

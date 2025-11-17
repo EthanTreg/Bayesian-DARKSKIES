@@ -10,7 +10,8 @@
       "config_dir": "../network_configs/composite_layers/",
       "defaults": {
         "Conv": {
-          "activation": "GELU"
+          "activation": "GELU",
+          "dropout": 0.05
         }
       }
     }

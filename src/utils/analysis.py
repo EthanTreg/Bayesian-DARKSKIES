@@ -12,6 +12,8 @@ from scipy.stats import gaussian_kde
 from torch.utils.data import DataLoader
 from netloader.data import BaseDataset, loader_init
 
+from src.utils.utils import ROOT
+
 
 def _key_summary(
         key: str,
@@ -76,7 +78,6 @@ def _summary(data: dict[str, Any]) -> dict[str, Any]:
 
     for key in set(data.keys()) - set(primary_keys):
         post_data[key] = data[key]
-
     return post_data
 
 
@@ -111,7 +112,7 @@ def _batch_train_summary(
     datum: dict[str, Any]
     val: Any
 
-    with open(os.path.join(dir_, f'{prefix}_{num}.pkl'), 'rb') as file:
+    with open(os.path.join(ROOT, dir_, f'{prefix}_{num}.pkl'), 'rb') as file:
         data = pickle.load(file)
 
     # Loop through all runs in the batch training file
@@ -567,7 +568,6 @@ def phys_params(
             dm_mass,
             b_mass,
         ), axis=-1))
-
     return latents, params
 
 
@@ -591,7 +591,6 @@ def pred_distributions(targets: ndarray, preds: ndarray) -> list[ndarray]:
 
     for target in np.unique(targets):
         data.append(preds[targets == target])
-
     return data
 
 
@@ -861,7 +860,6 @@ def proj_all_inter_1d(vecs: ndarray, classes: ndarray) -> ndarray:
 
     for class_ in np.unique(classes):
         proj_vecs.append(proj_1d(class_, centers, rel_vecs, np.unique(classes)))
-
     return np.array(proj_vecs, dtype=object)
 
 
@@ -927,5 +925,4 @@ def summary(data: dict[str, ndarray]) -> tuple[ndarray, ndarray, ndarray, ndarra
         means.append(np.mean(data['latent'][idxs, 0]))
         stes.append(np.std(data['latent'][idxs, 0]) / np.sqrt(np.count_nonzero(idxs)))
         accuracies.append(np.count_nonzero(data['preds'][idxs] == class_) / len(idxs))
-
     return np.stack(medians), np.stack(means), np.stack(stes), np.stack(accuracies)

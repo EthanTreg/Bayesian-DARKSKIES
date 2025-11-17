@@ -16,7 +16,7 @@ from netloader import transforms
 from netloader.network import Network
 from netloader.data import loader_init
 from netloader.networks import BaseNetwork
-from netloader.utils.utils import get_device, save_name
+from netloader.utils import get_device, save_name
 from torch.utils.data import DataLoader
 from sklearn.decomposition import PCA
 from wandb import Artifact
@@ -160,13 +160,16 @@ def net_init(dataset: DarkDataset, config: str | dict = '../config.yaml') -> net
             verbose=config['training']['verbose'],
             transform=param_transform,
             in_transform=transform,
-            scheduler_kwargs={
+            scheduler_kwargs=None if config['training']['scheduler'] == 'ReduceLROnPlateau' else {
                 'max_lr': config['training']['max-learning-rate'],
                 'total_steps': int(config['training']['epochs'] * len(dataset)
                                * (1 - config['training']['validation-fraction'])
                                // config['training']['batch-size']),
             },
-        )
+        )#
+        net.cluster_loss = config['training']['compact-clustering-weight']
+        net.class_loss = config['training']['classification-weight']
+        net.distance_loss = config['training']['distance-weight']
 
     # For transfer learning
     # net.optimiser = net.set_optimiser(net.net.parameters(), lr=1e-5)
@@ -211,6 +214,7 @@ def init(
     batch_size: int = config['training']['batch-size']
     val_frac: int = config['training']['validation-fraction']
     data_dir: str = str(os.path.join(utils.ROOT, config['data']['data-dir']))
+    loader_states: tuple[torch.Tensor, torch.Tensor]
     loaders: tuple[DataLoader, DataLoader]
     gen: torch.Generator
     net: BaseNetwork
@@ -233,7 +237,10 @@ def init(
     #     unknown,
     #     cdm_sigma=config['training']['cdm-sigma'],
     # )
-    dataset.low_dim = dataset.unique_labels(dataset.low_dim, dataset.extra['sims'])
+
+    if config['training']['unique-cdm']:
+        dataset.low_dim = dataset.unique_labels(dataset.low_dim, dataset.extra['sims'])
+
     net = net_init(dataset, config)
     gen = torch.Generator()
 
@@ -253,6 +260,11 @@ def init(
     net.idxs = dataset.extra['ids'].iloc[loaders[0].dataset.indices] \
         if net.idxs is None else net.idxs
 
+    if isinstance(net, CompactClusterEncoder) and net.get_loader_states():
+        loader_states = net.get_loader_states()
+        loaders[0].generator.set_state(loader_states[0])
+        loaders[1].generator.set_state(loader_states[1])
+
     print(f'Train & Validation dataloaders: {len(loaders[0].dataset)}\t{len(loaders[1].dataset)}')
     return loaders, net, dataset
 
@@ -266,32 +278,33 @@ def main(config_path: str = '../config.yaml'):
     config_path : string, default = '../config.yaml'
         Path to the configuration file
     """
+    use_wandb: bool
     net_epochs: int
     plots_dir: str
     states_dir: str
     known: list[str]
     labels: list[str]
     unknown: list[str]
-    # plot_colours: list[str] = plot_config.bahamas_agn + plot_config.bahamas
+    plot_colours: list[str] = plot_config.BAHAMAS_AGN + plot_config.BAHAMAS
     # plot_colours: list[str] = [
     #     plot_config.BAHAMAS[2],
     #     *plot_config.BAHAMAS[:2],
     #     plot_config.BAHAMAS[3],
     # ]
-    plot_colours: list[str] = [
-        *plot_config.DARKSKIES[:3],
-        plot_config.BAHAMAS[2],
-        plot_config.DARKSKIES[3],
-        *plot_config.BAHAMAS[:2],
-        plot_config.BAHAMAS[3],
-        # plot_config.DARKSKIES[0],
-        # *plot_config.BAHAMAS_AGN,
-        # plot_config.BAHAMAS[0],
-        # plot_config.DARKSKIES[1],
-        # plot_config.BAHAMAS[1],
-        # plot_config.DARKSKIES[2],
-        # *plot_config.BAHAMAS[2:],
-    ]
+    # plot_colours: list[str] = [
+    #     *plot_config.DARKSKIES[:3],
+    #     plot_config.BAHAMAS[2],
+    #     plot_config.DARKSKIES[3],
+    #     *plot_config.BAHAMAS[:2],
+    #     plot_config.BAHAMAS[3],
+    #     # plot_config.DARKSKIES[0],
+    #     # *plot_config.BAHAMAS_AGN,
+    #     # plot_config.BAHAMAS[0],
+    #     # plot_config.DARKSKIES[1],
+    #     # plot_config.BAHAMAS[1],
+    #     # plot_config.DARKSKIES[2],
+    #     # *plot_config.BAHAMAS[2:],
+    # ]
     param_names: list[str] = [
         r'$\sigma_{\rm DM}$',
         '$M$',
@@ -313,6 +326,7 @@ def main(config_path: str = '../config.yaml'):
     net: nets.BaseNetwork
     dataset: DarkDataset
 
+    use_wandb = config['training']['wandb']
     net_epochs = config['training']['epochs']
     plots_dir = str(os.path.join(utils.ROOT, config['output']['plots-directory']))
     states_dir = str(os.path.join(utils.ROOT, config['output']['network-states-directory']))
@@ -335,11 +349,12 @@ def main(config_path: str = '../config.yaml'):
 
     # Initialise network
     loaders, net, dataset = init(known, config, unknown=unknown)
-    # net.class_loss = 1
-    # net.cluster_loss = 1
-    # net.distance_loss = 0.5
+    net.cluster_loss = config['training']['compact-clustering-weight']
+    net.class_loss = config['training']['classification-weight']
+    net.distance_loss = config['training']['distance-weight']
     print(net)
 
+    # Initialise Weights & Biases
     wandb_config = utils.wandb_config(
         net_epochs,
         net.save_path.split('/')[-1].replace('.pth', ''),
@@ -347,18 +362,28 @@ def main(config_path: str = '../config.yaml'):
         config['training'],
     )
 
-    if config['training']['wandb'] and net.save_path and 0 < net.get_epochs() < net_epochs:
-        wandb.init(**wandb_config, resume='allow')
-    elif config['training']['wandb'] and net.save_path and net.get_epochs() == 0:
-        try:
-            net.run = wandb.init(
-                **wandb_config,
-                resume_from=f"{net.save_path.split('/')[-1].replace('.pth', '')}?_step=0",
+    if not use_wandb or net.get_epochs() == net_epochs:
+        pass
+    elif net.get_epochs() == 0 and \
+            utils.run_exists(wandb_config['entity'], wandb_config['project'], wandb_config['id']):
+        net.run = wandb.init(**wandb_config, resume_from=f"{wandb_config['id']}?_step=0")
+    elif utils.run_exists(wandb_config['entity'], wandb_config['project'], wandb_config['id']):
+        net.run = wandb.init(**wandb_config, resume='allow')
+    elif net.get_epochs():
+        net.run = wandb.init(**wandb_config)
+
+        for losses in zip(*net.losses):
+            net.run.log(
+                data={'Train Loss': losses[0], 'Validation Loss': losses[1]}
+                if isinstance(losses[0], float) else
+                {f'Train {key}': val for key, val in losses[0].items()} |
+                {f'Validation {key}': val for key, val in losses[1].items()}
             )
-        except wandb.errors.CommError:
-            net.run = wandb.init(**wandb_config)
+    else:
+        net.run = wandb.init(**wandb_config)
 
     # Train network
+    # net.net = torch.compile(net.net)
     net.training(net_epochs, loaders)
 
     if net.run and not wandb.Api().run(
@@ -366,7 +391,7 @@ def main(config_path: str = '../config.yaml'):
         artifact = wandb.Artifact(f'{net.__class__.__name__}-{net.net.name}', type='model')
         artifact.add_file(net.save_path)
         net.run.log_artifact(artifact)
-        net.run.finish(exit_code=0)
+        net.run.finish()
 
     # Generate predictions
     dataset._mix = False
@@ -506,7 +531,7 @@ def main(config_path: str = '../config.yaml'):
         alpha_marker=0.1,
         alpha_2d=0.2,
         colours=plot_colours,
-        rows=len(labels),
+        cols=1,
         loc='upper right',
     ).savefig(plots_dir, name='PCA')
     plots.PlotClusters(
@@ -517,7 +542,7 @@ def main(config_path: str = '../config.yaml'):
         alpha_2d=0.2,
         labels=labels,
         colours=plot_colours,
-        rows=len(labels),
+        cols=1,
         loc='upper right',
     ).savefig(plots_dir, name='clusters')
     plots.PlotConfusion(labels, data['preds'], data['targets'], minor=20).savefig(plots_dir)

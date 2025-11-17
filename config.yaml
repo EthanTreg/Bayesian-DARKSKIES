@@ -27,20 +27,22 @@ main:
     overwrite: False
     # Use mixup data augmentation
     mixup: False
+    # If all CDM simulations should have a unique class label or the same
+    unique-cdm: False
     # Use Weights & Biases for experiment tracking
-    wandb: False
+    wandb: True
     # Number of epochs to train the network for
     epochs: 150
     # Number of inputs to process between network weight updates
     batch-size: 120
     # File number to save the network progres
-    network-save: 'test'
+    network-save: 'shear_17'
     # File number to load the network state
-    network-load: ''
+    network-load: 'shear_17'
     # Number of channels in the input images
-    image-channels: 1
+    image-channels: 2
     # Random seed for training
-    seed: 1
+    seed: -1
     # CDM Effective Cross-Section
     cdm-sigma: 1.0e-2
     # Learning rate for training the network
@@ -50,42 +52,50 @@ main:
     max-learning-rate: 1.0e-3
     # Validation dataset fraction
     validation-fraction: 0.2
+    # Weights for classification loss
+    classification-weight: 1
+    # Weight for compact clustering with label propagation loss
+    compact-clustering-weight: 2.2
+    # Weight for distance-based regression loss
+    distance-weight: 1
     # File name for network model to load
-    network-name: 'network_v10_test'
+    network-name: 'network_v16'
     # Network description
     description: 'Shear noiseless, BAHAMAS-0.3 noisy unknown'
     # Level of output verbosity: 'epoch', 'full', 'plot', 'progress', None
     verbose: 'progress'
+    # Learning rate scheduler to use: 'ReduceLROnPlateau', 'OneCycleLR'
+    scheduler: 'OneCycleLR'
     # W&B group
     wandb-group: 'shear'
     # Known simulations
     known:
-      - 'bahamas_cdm'
+#      - 'bahamas_cdm'
 #      - 'bahamas_cdm_shear_real'
-      - 'bahamas_cdm_low'
-      - 'bahamas_cdm_hi'
+#      - 'bahamas_cdm_low'
+#      - 'bahamas_cdm_hi'
 #      - 'bahamas_0.03_mix'
-      - 'bahamas_0.1'
+#      - 'bahamas_0.1'
 #      - 'bahamas_0.1_shear_real'
 #      - 'bahamas_0.17_mix'
-      - 'bahamas_0.3'
+#      - 'bahamas_0.3'
 #      - 'bahamas_0.3_shear_real'
 #      - 'bahamas_0.55_mix'
-      - 'bahamas_1'
+#      - 'bahamas_1'
 #      - 'bahamas_1_shear_real'
 #      - 'bahamas_dmo_1'
 #      - 'flamingo'
 #      - 'flamingo_low'
 #      - 'flamingo_hi'
 #      - 'bahamas_dmo_cdm'
-      - 'darkskies_cdm'
+#      - 'darkskies_cdm'
 #      - 'darkskies_0.05'
-      - 'darkskies_0.1'
-      - 'darkskies_0.2'
-#      - 'bahamas_cdm_shear'
-#      - 'bahamas_0.1_shear'
-#      - 'bahamas_0.3_shear'
-#      - 'bahamas_1_shear'
+#      - 'darkskies_0.1'
+#      - 'darkskies_0.2'
+      - 'bahamas_cdm_shear'
+      - 'bahamas_0.1_shear'
+      - 'bahamas_0.3_shear'
+      - 'bahamas_1_shear'
 #      - 'bahamas_cdm_cat'
 #      - 'bahamas_0.1_cat'
 #      - 'bahamas_0.3_cat'
@@ -94,10 +104,10 @@ main:
     unknown:
 #      - 'bahamas_cdm_shear_real'
 #      - 'bahamas_0.1'
-#      - 'bahamas_0.1_shear_real'
+      - 'bahamas_0.1_shear_real'
 #      - 'bahamas_0.3'
 #      - 'bahamas_0.3_shear'
-#      - 'bahamas_0.3_shear_real'
+      - 'bahamas_0.3_shear_real'
 #      - 'bahamas_1_shear_real'
 #      - 'flamingo_low_test'
 #      - 'bahamas_dmo_0.1'

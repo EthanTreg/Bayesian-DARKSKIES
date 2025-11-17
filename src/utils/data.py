@@ -193,10 +193,10 @@ class DarkDataset(BaseDataset):
             [sim] * len(images),
             [labels['name']] * len(images),
             labels['norms'].tolist(),
-            labels.pop('mass', np.array([None] * len(images))).tolist(),
+            labels.pop('mass', np.zeros(len(images))).tolist(),
             np.stack((
-                labels.pop('BCG_e1', np.array([None] * len(images))),
-                labels.pop('BCG_e2', np.array([None] * len(images))),
+                labels.pop('BCG_e1', np.zeros(len(images))),
+                labels.pop('BCG_e2', np.zeros(len(images))),
             ), axis=1).tolist(),
         ], dtype=object).swapaxes(0, 1))
         return labels, images, extra

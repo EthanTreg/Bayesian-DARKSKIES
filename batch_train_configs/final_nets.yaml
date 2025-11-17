@@ -5,6 +5,8 @@ training:
   # If the unknown simulations should be cumulatively added between tests or only use simulations
   # given for that test
   unknown-cumulative: True
+  # If simulations with the same label should be unique classes or not
+  unique-labels: False
   # Number of epochs to train the network for
   epochs: 200
   # Number of repeats per test
@@ -12,13 +14,23 @@ training:
   # File number to save the network progres
   batch-save: 50
   # File number to load the network state
-  batch-load: 49
+  batch-load: 50
+  # Random seed for training
+  seed: -1
+  # CDM Effective Cross-Section
+  cdm-sigma: 1.0e-2
   # Learning rate for training the network
-  learning-rate: 1.0e-4
+#  learning-rate: 1.0e-5  # For OneCycleLR
+  learning-rate: 1.0e-4  # For ReduceLROnPlateau
+  # Maximum learning rate for training the network if using OneCycleLR
+  max-learning-rate: 1.0e-3
   # File name for the network model to load
   network-name: 'network_v8'
   # Network description to append on description
-  description: 'Final Large Net, Flamingo, (K 1e-2, NX, 1L)'
+  description: 'Final Large Net, DARKSKIES, (K 1e-2, NX, 1L)'
+  # Learning rate scheduler to use: 'ReduceLROnPlateau', 'OneCycleLR'
+  scheduler: 'ReduceLROnPlateau'
+#  scheduler: 'OneCycleLR'
   # Names for each test
   test-names:
     # Batch Train 41 & 46
@@ -161,3 +173,6 @@ training:
 #      - '!flamingo_low_test'
 #      - 'bahamas_cdm_low'
 #      - 'bahamas_cdm_hi'
+data:
+  # Path to the configuration files for the encoder and decoder
+  network-configs-directory: '../network_configs/paper_nets/'
