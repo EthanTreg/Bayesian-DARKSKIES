@@ -8,6 +8,7 @@ from argparse import ArgumentParser
 import yaml
 import wandb  # pylint: disable=wrong-import-order
 import numpy as np
+import pandas as pd
 from numpy import ndarray
 from scipy.stats import gaussian_kde
 
@@ -228,6 +229,33 @@ def run_exists(entity: str, project: str, run_id: str) -> bool:
         return False
 
 
+def tests_format(key: str, data: pd.DataFrame) -> np.ndarray:
+    """
+    Formats test results from a DataFrame to a NumPy array based in indexes.
+
+    Parameters
+    ----------
+    key : str
+        Key of the data to extract
+    data : pd.DataFrame
+        DataFrame containing the test results
+
+    Returns
+    -------
+    ndarray
+        Formatted NumPy array of the test results with shape based on MultiIndex levels and type
+        object
+    """
+    if not isinstance(data.index, pd.MultiIndex):
+        return data[key].to_numpy()[np.newaxis]
+
+    new_data = np.empty([len(level) for level in data.index.levels[1:]], dtype=object)
+
+    for shape, vals in data.groupby(level=data.index.names[1:])[key].apply(list).items():
+        new_data[*([shape] if isinstance(shape, int) else shape)] = vals
+    return np.array(new_data.tolist(), dtype=object)
+
+
 def wandb_config(
         epochs: int,
         name: str,
@@ -255,25 +283,8 @@ def wandb_config(
     return {
         'entity': 'davidharvey1986-epfl',
         'project': 'Bayesian-DARKSKIES',
-        # 'id': f'{net.save_path.split('/')[-1].replace('.pth', '')}-{generate_id(4)}',
         'id': name,
         'name': name,
         'group': group,
         'config': {'epochs': epochs} | config,
-        # 'config': {
-        #     'epochs': epochs,
-        #     'batch_size': config['training']['batch-size'],
-        #     'steps': net.get_steps(),
-        #     'learning_rate': config['training']['learning-rate'],
-        #     'max_learning_rate': config['training']['max-learning-rate'],
-        #     'validation_fraction': config['training']['validation-fraction'],
-        #     'Classification Weight': net.class_loss,
-        #     'CCLP Weight': net.cluster_loss,
-        #     'Distance Weight': net.distance_loss,
-        #     'known': known,
-        #     'unknown': unknown,
-        #     'description': net.description,
-        #     'optimiser': net.optimiser.__class__.__name__,
-        #     'scheduler': net.scheduler.__class__.__name__,
-        # },
     }

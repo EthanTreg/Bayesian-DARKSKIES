@@ -156,10 +156,24 @@ class ClusterEncoder(BaseNetwork):
 
     Methods
     -------
-    batch_predict(data) -> tuple[Tensor, Tensor, Tensor]
-        Generates predictions and latent space for the given data batch
+    set_scheduler(optimiser, **kwargs) -> optim.lr_scheduler.LRScheduler
+        Sets the OneCycleLR scheduler for the network
     extra_repr() -> str
         Displays layer parameters when printing the architecture
+    get_hyperparams() -> dict[str, Any]
+        Gets the hyperparameters of the network
+    get_loader_states() -> tuple[Tensor, Tensor] | None
+        Gets the current data loader states
+    get_rng_states() -> dict[str, Any]
+        Gets the current random number generator states
+    set_rng_states(states) -> None
+        Sets the random number generator states
+    training(epochs, loaders) -> None
+        Trains & validates the network for each epoch
+    batch_predict(data) -> tuple[Tensor, Tensor, Tensor]
+        Generates predictions and latent space for the given data batch
+    to(*args, **kwargs) -> Self
+        Move and/or cast the parameters and buffers
     """
     def __init__(
             self,
@@ -230,6 +244,7 @@ class ClusterEncoder(BaseNetwork):
         )
         self._unknown: int = unknown
         self._method: str = method
+        self._loader_states: tuple[Tensor, Tensor] | None = None
         self._cluster_centers: Tensor | None = None
         self.sim_loss: float = 1
         self.class_loss: float = 1
@@ -240,22 +255,6 @@ class ClusterEncoder(BaseNetwork):
         self.run: wandb.Run | None = None
 
         self.transforms |= {'probs': None, 'latent': None}
-
-    def extra_repr(self) -> str:
-        """
-        Displays architecture parameters when printing the network
-
-        Returns
-        -------
-        str
-            Architecture parameters
-        """
-        return (f'method: {self._method}, '
-                f'center_step: {self.center_step.cpu().numpy().tolist()}, '
-                f'similarity_weight: {self.sim_loss}, '
-                f'class_weight: {self.class_loss}, '
-                f'compact_weight: {self.compact_loss}, '
-                f'distance_weight: {self.distance_loss}')
 
     def __getstate__(self) -> dict[str, Any]:
         return super().__getstate__() | {
@@ -268,6 +267,7 @@ class ClusterEncoder(BaseNetwork):
             'distance_loss': self.distance_loss,
             'classes': self.classes,
             'center_step': self.center_step,
+            'rng_states': self.get_rng_states(),
         }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -283,6 +283,19 @@ class ClusterEncoder(BaseNetwork):
         self.classes = state['classes']
         self.center_step = state['center_step']
         self.run = state['run'] if 'run' in state else None
+
+        if 'rng_states' not in state:
+            state['rng_states'] = {
+                'numpy': state.pop('numpy_rng', np.random.get_state()),
+                'loaders': state.pop('loader_states', None),
+                'pytorch': state.pop('pytorch_rng', torch.get_rng_state()),
+                'cuda': state.pop(
+                    'cuda_rng',
+                    torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                ),
+            }
+
+        self.set_rng_states(state['rng_states'])
 
         if 'unknown' not in state:
             warn(
@@ -497,7 +510,7 @@ class ClusterEncoder(BaseNetwork):
     @staticmethod
     def set_scheduler(optimiser: optim.Optimizer, **kwargs: Any) -> optim.lr_scheduler.LRScheduler:
         """
-        Sets the OneCycleLR scheduler for the network
+        Sets the OneCycleLR scheduler for the network.
 
         Parameters
         ----------
@@ -515,6 +528,88 @@ class ClusterEncoder(BaseNetwork):
             return super(ClusterEncoder, ClusterEncoder).set_scheduler(optimiser, **kwargs)
         return optim.lr_scheduler.OneCycleLR(optimiser, **kwargs)
 
+    def extra_repr(self) -> str:
+        """
+        Displays architecture parameters when printing the network.
+
+        Returns
+        -------
+        str
+            Architecture parameters
+        """
+        return (f'method: {self._method}, '
+                f'center_step: {self.center_step.cpu().numpy().tolist()}, '
+                f'similarity_weight: {self.sim_loss}, '
+                f'class_weight: {self.class_loss}, '
+                f'compact_weight: {self.compact_loss}, '
+                f'distance_weight: {self.distance_loss}')
+
+    def get_hyperparams(self) -> dict[str, Any]:
+        """
+        Gets the hyperparameters of the network.
+
+        Returns
+        -------
+        dict[str, Any]
+            Hyperparameters of the network
+        """
+        return super().get_hyperparams() | {
+            'num_unknown': self._unknown,
+            'method': self._method,
+            'sim_weight': self.sim_loss,
+            'class_weight': self.class_loss,
+            'compact_weight': self.compact_loss,
+            'distance_weight': self.distance_loss,
+            'classes': self.transforms['targets'](self.classes, back=True).tolist()
+            if self.transforms['targets'] else self.classes.cpu().tolist(),
+            'center_step': self.center_step.cpu().tolist(),
+        }
+
+    def get_loader_states(self) -> tuple[Tensor, Tensor] | None:
+        """
+        Gets the current data loader states.
+
+        Returns
+        -------
+        tuple[Tensor, Tensor] | None
+            Train and validation data loader states
+        """
+        return self._loader_states
+
+    def get_rng_states(self) -> dict[str, Any]:
+        """
+        Gets the current random number generator states.
+
+        Returns
+        -------
+        dict[str, Any]
+            Random number generator states for numpy, data loaders, pytorch, and cuda
+        """
+        return {
+            'numpy': tuple(state.tolist() if isinstance(state, ndarray) else
+                      state for state in np.random.get_state()),
+            'loaders': self._loader_states,
+            'pytorch': torch.get_rng_state(),
+            'cuda': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        }
+
+    def set_rng_states(self, states: dict[str, Any]) -> None:
+        """
+        Sets the random number generator states.
+
+        Parameters
+        ----------
+        states : dict[str, Any]
+            Random number generator states for numpy, data loaders, pytorch, and cuda
+        """
+        cuda_state: Tensor | None
+        np.random.set_state(states.pop('numpy', np.random.get_state()))
+        self._loader_states = states.pop('loaders', None)
+        torch.set_rng_state(states.pop('pytorch', torch.get_rng_state()))
+
+        if torch.cuda.is_available() and (cuda_state := states.pop('cuda_rng', None)):
+            torch.cuda.set_rng_state_all(cuda_state)
+
     def training(self, epochs: int, loaders: tuple[DataLoader[Any], DataLoader[Any]]) -> None:
         """
         Trains & validates the network for each epoch.
@@ -529,15 +624,6 @@ class ClusterEncoder(BaseNetwork):
         i: int
         t_initial: float
         loss: LossCT
-
-        if self.run and self._epoch:
-            for losses in zip(*self.losses):
-                self.run.log(
-                    {'Train Loss': losses[0], 'Validation Loss': losses[1]}
-                    if isinstance(losses[0], float) else
-                    {f'Train {key}': val for key, val in losses[0].items()} |
-                    {f'Validation {key}': val for key, val in losses[1].items()}
-                )
 
         # Train for each epoch
         for i in range(self._epoch, epochs):
@@ -564,6 +650,10 @@ class ClusterEncoder(BaseNetwork):
                 )
 
             # Save training progress
+            self._loader_states = (
+                loaders[0].generator.get_state(),
+                loaders[1].generator.get_state(),
+            )
             self._update_epoch()
             self.save()
             self._epoch_print(i, epochs, time() - t_initial)
@@ -575,7 +665,7 @@ class ClusterEncoder(BaseNetwork):
 
     def batch_predict(self, data: Tensor, **_: Any) -> tuple[ndarray, ndarray, ndarray]:
         """
-        Generates predictions and latent space for the given data batch
+        Generates predictions and latent space for the given data batch.
 
         Parameters
         ----------
@@ -607,13 +697,12 @@ class ClusterEncoder(BaseNetwork):
 
         if self._cluster_centers is not None:
             self._cluster_centers = self._cluster_centers.to(*args, **kwargs)
-
         return self
 
 
 class CompactClusterEncoder(ClusterEncoder):
     """
-    Semi supervised clustering of the latent space and prediction of labels
+    Semi supervised clustering of the latent space and prediction of labels.
 
     Attributes
     ----------
@@ -650,10 +739,14 @@ class CompactClusterEncoder(ClusterEncoder):
 
     Methods
     -------
-    saliency(loader, batch=True) -> dict[str, ndarray]
-        Calculates the saliency for each dimension in the latent space by zeroing out the gradients
     extra_repr() -> str
         Displays layer parameters when printing the architecture
+    get_hyperparams() -> dict[str, Any]
+        Gets the hyperparameters of the network
+    get_steps() -> int
+        Returns the number of Markov chain steps for cluster identification
+    saliency(loader, batch=True) -> dict[str, ndarray]
+        Calculates the saliency for each dimension in the latent space by zeroing out the gradients
     """
     def __init__(
             self,
@@ -752,7 +845,7 @@ class CompactClusterEncoder(ClusterEncoder):
     def _label_propagation_cluster_loss(self, latent: Tensor, one_hot: Tensor) -> Tensor:
         """
         Calculates the label propagation for unlabelled data points and calculates the loss for the
-        clusters
+        clusters.
 
         Parameters
         ----------
@@ -982,9 +1075,28 @@ class CompactClusterEncoder(ClusterEncoder):
         latent: Tensor = self.net.checkpoints[-1]
         return self._loss_function(target, latent, output)
 
+    def extra_repr(self) -> str:
+        return f'{super().extra_repr()}, steps: {self._steps}, cluster_weight: {self.cluster_loss}'
+
+    def get_hyperparams(self) -> dict[str, Any]:
+        """
+        Gets the hyperparameters of the network.
+
+        Returns
+        -------
+        dict[str, Any]
+            Hyperparameters of the network
+        """
+        return super().get_hyperparams() | {
+            'steps': self._steps,
+            'epsilon': self.epsilon,
+            'cluster_weight': self.cluster_loss,
+            'distance_weight': self.distance_loss,
+        }
+
     def get_steps(self) -> int:
         """
-        Returns the number of Markov chain steps for cluster identification
+        Returns the number of Markov chain steps for cluster identification.
 
         Returns
         -------
@@ -998,7 +1110,7 @@ class CompactClusterEncoder(ClusterEncoder):
             loader: DataLoader,
             batch: bool = True) -> dict[str, ndarray]:
         """
-        Calculates the saliency for each dimension in the latent space by zeroing out the gradients
+        Calculates the saliency for each dimension in the latent space by zeroing out the gradients.
 
         Parameters
         ----------
@@ -1070,13 +1182,10 @@ class CompactClusterEncoder(ClusterEncoder):
         torch.backends.cudnn.enabled = True
         return {key: np.concatenate(value) for key, value in data.items()}
 
-    def extra_repr(self) -> str:
-        return f'{super().extra_repr()}, steps: {self._steps}, cluster_weight: {self.cluster_loss}'
-
 
 class GradGate(BaseLayer):
     """
-    Zeros out all gradients in the backwards pass except one index in the last dimension
+    Zeros out all gradients in the backwards pass except one index in the last dimension.
 
     Attributes
     ----------
@@ -1096,7 +1205,7 @@ class GradGate(BaseLayer):
 
     def forward(self, x: Tensor, **_: Any) -> Tensor:
         """
-        Forward pass to register the gradient hook
+        Forward pass to register the gradient hook.
 
         Parameters
         ----------
@@ -1113,7 +1222,7 @@ class GradGate(BaseLayer):
 
     def hook(self, grad: Tensor) -> Tensor:
         """
-        Adds the gradient gate to the gradient in the backward pass
+        Adds the gradient gate to the gradient in the backward pass.
 
         Parameters
         ----------

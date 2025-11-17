@@ -19,6 +19,7 @@ network_configs/optuna_config.json
 *.wandb
 !/src/gaussian_tests.py
 !/batch_train_configs/*
+!/src/tests/*
 /*.egg-info/
 /build/
 /jupyter_notebooks/.ipynb_checkpoints/
